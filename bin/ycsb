@@ -92,7 +92,6 @@ DATABASES = {
     "orientdb"     : "site.ycsb.db.OrientDBClient",
     "postgrenosql" : "site.ycsb.postgrenosql.PostgreNoSQLDBClient",
     "rados"        : "site.ycsb.db.RadosClient",
-    "redis"        : "site.ycsb.db.RedisClient",
     "rest"         : "site.ycsb.webservice.rest.RestClient",
     "riak"         : "site.ycsb.db.riak.RiakKVClient",
     "rocksdb"      : "site.ycsb.db.rocksdb.RocksDBClient",
@@ -102,7 +101,8 @@ DATABASES = {
     "solr7"        : "site.ycsb.db.solr7.SolrClient",
     "tarantool"    : "site.ycsb.db.TarantoolClient",
     "tablestore"   : "site.ycsb.db.tablestore.TableStoreClient",
-    "zookeeper"    : "site.ycsb.db.zookeeper.ZKClient"
+    "zookeeper"    : "site.ycsb.db.zookeeper.ZKClient",
+    "obkv"         : "site.ycsb.db.OBKVClient",
 }
 
 OPTIONS = {
