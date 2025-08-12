@@ -265,7 +265,7 @@ public class CoreWorkload extends Workload {
   /**
    * The default zero padding value. Matches integer sort order
    */
-  public static final String ZERO_PADDING_PROPERTY_DEFAULT = "1";
+  public static final String ZERO_PADDING_PROPERTY_DEFAULT = "12";
 
   
   /**
@@ -507,17 +507,16 @@ public class CoreWorkload extends Workload {
   }
 
   public String buildKeyName(long keynum) {
-    // if (!orderedinserts) {
-    //   keynum = Utils.hash(keynum);
-    // }
-    // String value = Long.toString(keynum);
-    // int fill = zeropadding - value.length();
-    // String prekey = "user";
-    // for(int i=0; i<fill; i++) {
-    //   prekey += '0';
-    // }
-    // return prekey + value;
-    String paddedKey = String.format("%08d", Integer.parseInt(String.valueOf(keynum)));
+    if (!orderedinserts) {  
+      keynum = Utils.hash(keynum) % recordcount;
+    }
+    String value = Long.toString(keynum);
+    int fill = zeropadding - value.length();
+    String prekey = "";
+    for(int i=0; i<fill; i++) {
+      prekey += '0';
+    }
+    String paddedKey = prekey + value;
     return paddedKey;
   }
 
