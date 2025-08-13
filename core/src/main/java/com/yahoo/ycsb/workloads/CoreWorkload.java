@@ -246,6 +246,26 @@ public class CoreWorkload extends Workload {
   public static final String READMODIFYWRITE_PROPORTION_PROPERTY_DEFAULT = "0.0";
 
   /**
+   * The name of the property for the proportion of transactions that are batch put.
+   */
+  public static final String BATCH_PUT_PROPORTION_PROPERTY = "batchputproportion";
+
+  /**
+   * The default proportion of transactions that are batch put. 
+   */
+  public static final String BATCH_PUT_PROPORTION_PROPERTY_DEFAULT = "0.0";
+
+  /**
+   * The name of the property for the proportion of transactions that are batch read.
+   */
+  public static final String BATCH_READ_PROPORTION_PROPERTY = "batchreadproportion";
+
+  /**
+   * The default proportion of transactions that are batch read.
+   */
+  public static final String BATCH_READ_PROPORTION_PROPERTY_DEFAULT = "0.0";
+
+  /**
    * The name of the property for the the distribution of requests across the keyspace. Options are
    * "uniform", "zipfian" and "latest"
    */
@@ -331,6 +351,18 @@ public class CoreWorkload extends Workload {
   public static final String INSERTION_RETRY_INTERVAL = "core_workload_insertion_retry_interval";
   public static final String INSERTION_RETRY_INTERVAL_DEFAULT = "3";
 
+  /**
+   * The name of the property for the batch size of each batch put operation.
+   */
+  public static final String BATCH_PUT_SIZE_PER_OP = "batchput.size.per.op";
+  public static final String BATCH_PUT_SIZE_PER_OP_DEFAULT = "10";
+
+  /**
+   * The name of the property for batch_size of each batch read operation.
+   */
+  public static final String BATCH_READ_SIZE_PER_OP = "batchread.size.per.op";
+  public static final String BATCH_READ_SIZE_PER_OP_DEFAULT = "10";
+
   NumberGenerator keysequence;
 
   DiscreteGenerator operationchooser;
@@ -350,6 +382,9 @@ public class CoreWorkload extends Workload {
 
   int insertionRetryLimit;
   int insertionRetryInterval;
+  int batchPutSize;
+  int batchReadSize;
+  int operationcount;
 
   private Measurements _measurements = Measurements.getMeasurements();
 
@@ -402,6 +437,7 @@ public class CoreWorkload extends Workload {
     if (recordcount == 0) {
       recordcount = Integer.MAX_VALUE;
     }
+    operationcount = Integer.parseInt(p.getProperty(Client.OPERATION_COUNT_PROPERTY));
     String requestdistrib =
         p.getProperty(REQUEST_DISTRIBUTION_PROPERTY, REQUEST_DISTRIBUTION_PROPERTY_DEFAULT);
     int maxscanlength =
@@ -419,6 +455,7 @@ public class CoreWorkload extends Workload {
       System.err.println("recordcount must be bigger than insertstart + insertcount.");
       System.exit(-1);
     }
+
     zeropadding =
         Integer.parseInt(p.getProperty(ZERO_PADDING_PROPERTY, ZERO_PADDING_PROPERTY_DEFAULT));
 
@@ -504,6 +541,8 @@ public class CoreWorkload extends Workload {
         INSERTION_RETRY_LIMIT, INSERTION_RETRY_LIMIT_DEFAULT));
     insertionRetryInterval = Integer.parseInt(p.getProperty(
         INSERTION_RETRY_INTERVAL, INSERTION_RETRY_INTERVAL_DEFAULT));
+    batchPutSize = Integer.parseInt(p.getProperty(BATCH_PUT_SIZE_PER_OP, BATCH_PUT_SIZE_PER_OP_DEFAULT));
+    batchReadSize = Integer.parseInt(p.getProperty(BATCH_READ_SIZE_PER_OP, BATCH_READ_SIZE_PER_OP_DEFAULT));
   }
 
   public String buildKeyName(long keynum) {
@@ -639,6 +678,12 @@ public class CoreWorkload extends Workload {
       break;
     case "SCAN":
       doTransactionScan(db);
+      break;
+    case "BATCH_PUT":
+      doTransactionBatchPut(db);
+      break;
+    case "BATCH_READ":
+      doTransactionBatchRead(db);
       break;
     default:
       doTransactionReadModifyWrite(db);
@@ -839,6 +884,10 @@ public class CoreWorkload extends Workload {
         p.getProperty(SCAN_PROPORTION_PROPERTY, SCAN_PROPORTION_PROPERTY_DEFAULT));
     final double readmodifywriteproportion = Double.parseDouble(p.getProperty(
         READMODIFYWRITE_PROPORTION_PROPERTY, READMODIFYWRITE_PROPORTION_PROPERTY_DEFAULT));
+    final double batchputproportion = Double.parseDouble(p.getProperty(
+        BATCH_PUT_PROPORTION_PROPERTY, BATCH_PUT_PROPORTION_PROPERTY_DEFAULT));
+    final double batchreadproportion = Double.parseDouble(p.getProperty(
+        BATCH_READ_PROPORTION_PROPERTY, BATCH_READ_PROPORTION_PROPERTY_DEFAULT));
     
     final DiscreteGenerator operationchooser = new DiscreteGenerator();
     if (readproportion > 0) {
@@ -860,6 +909,53 @@ public class CoreWorkload extends Workload {
     if (readmodifywriteproportion > 0) {
       operationchooser.addValue(readmodifywriteproportion, "READMODIFYWRITE");
     }
+
+    if (batchputproportion > 0) {
+      operationchooser.addValue(batchputproportion, "BATCH_PUT");
+    }
+
+    if (batchreadproportion > 0) {
+      operationchooser.addValue(batchreadproportion, "BATCH_READ");
+    }
+
     return operationchooser;
+  }
+
+
+  public void doTransactionBatchPut(DB db) {
+    Map<String,Map<String,ByteIterator>> valuesMap = new HashMap<>();
+    for (int i = 0; i < batchPutSize; i++) {
+      // choose the next key
+      int keyNum = transactioninsertkeysequence.nextValue();
+      String dbKey = buildKeyName(keyNum);
+      HashMap<String, ByteIterator> values = buildValues(dbKey);
+      valuesMap.put(dbKey,values);
+      transactioninsertkeysequence.acknowledge(keyNum);
+    }
+    db.batchPut(table, valuesMap);
+  }
+
+  public void doTransactionBatchRead(DB db) {
+    HashSet<String> fields = null;
+    if (!readallfields) {
+      // read a random field
+      String fieldname = fieldnames.get(fieldchooser.nextValue().intValue());
+
+      fields = new HashSet<String>();
+      fields.add(fieldname);
+    } else if (dataintegrity) {
+      // pass the full field list if dataintegrity is on for verification
+      fields = new HashSet<String>(fieldnames);
+    }
+
+    Map<String,Map<String,ByteIterator>> valuesMap = new HashMap<>();
+    for (int i = 0; i < batchReadSize; i++) {
+      // choose the next key
+      int keyNum = nextKeynum();
+      String dbKey = buildKeyName(keyNum);
+      HashMap<String, ByteIterator> values = new HashMap<>();
+      valuesMap.put(dbKey,values);
+    }
+    db.batchRead(table, fields, valuesMap);
   }
 }

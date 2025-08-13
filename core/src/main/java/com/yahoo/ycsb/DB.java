@@ -18,6 +18,7 @@
 package com.yahoo.ycsb;
 
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Vector;
@@ -134,4 +135,27 @@ public abstract class DB
 	 * @return The result of the operation.
 	 */
 	public abstract Status delete(String table, String key);
+
+  /**
+   * 与batchRead最大不同就是 生成的key是顺序的
+   *
+   * @param table     The name of the table
+   * @param valuesMap The record collection of the record rows to execute.
+   * @return The result of the operation.
+   */
+  public Status batchPut(String table, Map<String, Map<String, ByteIterator>> valuesMap) {
+    throw new RuntimeException("batch must be implemented by current db");
+  }
+
+  /**
+   * 与batch最大不同就是 生成的key是随机的
+   *
+   * @param table     The name of the table
+   * @param valuesMap The record collection of the record rows to execute.
+   * @return The result of the operation.
+   */
+  public Status batchRead(String table, Set<String> fields, Map<String, Map<String, ByteIterator>> valuesMap) {
+    throw new RuntimeException("batchRead must be implemented by current db");
+  }
+
 }

@@ -6,6 +6,7 @@ YCSB (Yahoo! Cloud System Benchmark) 是一个用于测试云数据库性能的�
 
 | 版本 | 日期 | 主要更新内容 |
 |------|------|-------------|
+| v1.1.0 | 2025-08-22 | 1. 增加batch put和batch get测试接口及相应的配置项 <br> 2. 更新run_fast_test.sh脚本 |
 | v1.1.0 | 2025-08-11 | 1. 修复预建分区表脚本生成的range分区范围有误，同时支持设置前缀'0'填充长度<br> 2. key生成算法优化，使测试过程中的数据分布更均衡<br>3. 生成的key前缀'0'填充长度从1位调整为12位<br> |
 | v1.0.0 | 初始版本 | 1. 基于ycsb实现ob-hbase的put/read/scan性能测试<br>2. 提供支持快速测试的编译、运行脚本<br>3. 支持ODP和直连两种连接模式<br>4. 支持预分区表创建和测试 |
 
@@ -94,6 +95,8 @@ PS:其他客户端参数设置，可以参考obkv-hbase-client和obkv-table-clie
 - 新增零填充长度参数，支持自定义key前缀的零填充位数
 - 默认零填充长度从1位调整为12位，与YCSB配置保持一致
 （**注意：** YCSB通过zeropadding配置项控制生成数据前缀'0'的填充长度，如果预建表脚本显式指定了零填充长度，需要在测试时同步需要zeropadding的值）
+- 这一步中会根据要测试的数据量生成对应的range分区表，为了测试中压力均匀分布，后面的各类测试会基于这个数据量生成压力（**注意：**  如果后面测试的recordcount与当前建表的不一致，建议重新建表，避免测试压力不均匀）
+
 
 #### 在 OceanBase 数据库中执行上述脚本生成的建表语句
 ```bash
@@ -134,18 +137,54 @@ PARTITION BY RANGE COLUMNS(K) (
 - 支持更大的数据量测试，避免分区倾斜问题
 
 ### 5. 快速运行测试
-
+#### 5.1. 进行scan测试
 ```bash
-# 先导入数据
-./run_fast_test.sh load ob-hbase -P workloads/workload_scan
+# 先导入数据，这一步会交互式地让用户选择load哪种测试的数据（read/scan/batchread），会分别对应取读对应的workload文件
+./run_fast_test.sh load
+
+# 如果想使用自己自定义的workload文件，可以显式指定
+./run_fast_test.sh load workloads/my_workload
 
 # 确定每个分区的key数量是否均衡
 select count(1) from test$family partition(p0);
 select count(1) from test$family partition(p1);
 select count(1) from test$family partition(p2);
-...
 
 # 扫描数据
-./run_fast_test.sh scan ob-hbase -P workloads/workload_scan
+./run_fast_test.sh scan
+```
+#### 5.2. 进行put测试
+```bash
+# 运行put测试
+./run_fast_test.sh put
+```
+#### 5.3. 进行batch_put测试
+```bash
+# 运行batch_put测试
+./run_fast_test.sh batch_put
+```
+#### 5.4. 进行read测试
+```bash
+# 同上，需要先load数据
+./run_fast_test.sh load
+
+# 运行
+./run_fast_test.sh read
+```
+#### 5.5. 进行batch_read测试
+```bash
+# 同上，需要先load数据
+./run_fast_test.sh load
+
+# 运行
+./run_fast_test.sh batch_read
 ```
 
+#### 5.6. 进行自定义workload的测试
+```bash
+# 1. 自定义一个worload文件，位置在/path/to/custom/workload
+# 1.1 （可选）如果需要提前载入数据，使用这个文件进行数据加载
+./run_fast_test.sh load /path/to/custom/workload
+# 2. 运行这个测试
+./run_fast_test.sh worload /path/to/custom/workload
+```

@@ -39,13 +39,22 @@ echo "检测到Java版本：$JAVA_VERSION"
 
 # 检查命令行参数
 if [ $# -eq 0 ]; then
-    echo "用法：$0 {put|read|scan|load}"
+    echo "用法：$0 {put|read|scan|load [workload_file]|batch_put|batch_read|workload <workload_file>}"
     echo ""
     echo "选项说明："
-    echo "  put   - 执行写入测试"
-    echo "  read  - 执行读取测试"
-    echo "  scan  - 执行扫描测试"
-    echo "  load  - 执行read/scan数据的加载"
+    echo "  put        - 执行写入测试"
+    echo "  read       - 执行读取测试"
+    echo "  scan       - 执行扫描测试"
+    echo "  load [workload_file] - 执行数据加载，可指定workload文件"
+    echo "  batch_put  - 执行批量写入测试"
+    echo "  batch_read - 执行批量读取测试"
+    echo "  workload <workload_file> - 使用指定的workload文件执行测试"
+    echo ""
+    echo "示例："
+    echo "  $0 load                           # 交互式选择workload文件"
+    echo "  $0 load workloads/my_workload     # 直接指定workload文件"
+    echo "  $0 put # 运行put测试"
+    echo "  $0 workload /path/to/custom/workload"
     exit 1
 fi
 
@@ -87,19 +96,99 @@ case "$OPERATION" in
         java -jar "$JAR_FILE" -P "$WORKLOAD_FILE"
         ;;
     "load")
-        WORKLOAD_FILE="workloads/workload_scan"
+        # 检查是否提供了workload文件参数
+        if [ $# -ge 2 ]; then
+            WORKLOAD_FILE="$2"
+            if [ ! -f "$WORKLOAD_FILE" ]; then
+                echo "错误：指定的workload文件不存在：$WORKLOAD_FILE"
+                exit 1
+            fi
+            echo "=========================================="
+            echo "使用指定的workload文件执行数据加载..."
+            echo "Workload文件：$WORKLOAD_FILE"
+            echo "=========================================="
+            java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" -load
+        else
+            # 交互式选择workload文件
+            echo "=========================================="
+            echo "请选择要加载的数据类型："
+            echo "1) read       - 加载read测试数据"
+            echo "2) batch_read - 加载batch_read测试数据"
+            echo "3) scan       - 加载scan测试数据"
+            echo "=========================================="
+            read -p "请输入选择 (1/2/3): " load_choice
+            
+            case "$load_choice" in
+                "1")
+                    WORKLOAD_FILE="workloads/workload_read"
+                    echo "选择：read"
+                    ;;
+                "2")
+                    WORKLOAD_FILE="workloads/workload_batch_read"
+                    echo "选择：batch_read"
+                    ;;
+                "3")
+                    WORKLOAD_FILE="workloads/workload_scan"
+                    echo "选择：scan"
+                    ;;
+                *)
+                    echo "错误：无效的选择，请输入 1、2 或 3"
+                    exit 1
+                    ;;
+            esac
+            
+            if [ ! -f "$WORKLOAD_FILE" ]; then
+                echo "错误：workload文件不存在：$WORKLOAD_FILE"
+                exit 1
+            fi
+            echo "=========================================="
+            echo "执行数据加载..."
+            echo "=========================================="
+            java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" -load
+        fi
+        ;;
+    "batch_put")
+        WORKLOAD_FILE="workloads/workload_batch_put"
         if [ ! -f "$WORKLOAD_FILE" ]; then
             echo "错误：workload文件不存在：$WORKLOAD_FILE"
             exit 1
         fi
         echo "=========================================="
-        echo "执行数据加载..."
+        echo "执行批量写入测试..."
         echo "=========================================="
-        java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" -load
+        java -jar "$JAR_FILE" -P "$WORKLOAD_FILE"
+        ;;
+    "batch_read")
+        WORKLOAD_FILE="workloads/workload_batch_read"
+        if [ ! -f "$WORKLOAD_FILE" ]; then
+            echo "错误：workload文件不存在：$WORKLOAD_FILE"
+            exit 1
+        fi
+        echo "=========================================="
+        echo "执行批量读取测试..."
+        echo "=========================================="
+        java -jar "$JAR_FILE" -P "$WORKLOAD_FILE"
+        ;;
+    "workload")
+        if [ $# -lt 2 ]; then
+            echo "错误：workload选项需要指定workload文件路径"
+            echo "用法：$0 workload <workload_file>"
+            exit 1
+        fi
+        WORKLOAD_FILE="$2"
+        if [ ! -f "$WORKLOAD_FILE" ]; then
+            echo "错误：指定的workload文件不存在：$WORKLOAD_FILE"
+            exit 1
+        fi
+        echo "=========================================="
+        echo "使用自定义workload文件执行测试..."
+        echo "Workload文件：$WORKLOAD_FILE"
+        echo "=========================================="
+        java -jar "$JAR_FILE" -P "$WORKLOAD_FILE"
         ;;
     *)
         echo "错误：不支持的操作类型：$OPERATION"
-        echo "支持的操作：put, read, scan, load"
+        echo "支持的操作：put, read, scan, load, batch_put, batch_read, workload"
         exit 1
         ;;
 esac

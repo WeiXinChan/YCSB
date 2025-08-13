@@ -290,4 +290,73 @@ public class OBHBaseClient extends DB {
             return ERROR;
         }
     }
+
+    @Override
+    public Status batchPut(String table, Map<String, Map<String, ByteIterator>> valuesMap) {
+        List<Put> putList = new ArrayList<>();
+        valuesMap.forEach((key, values) -> {
+            Put put = new Put(key.getBytes());
+            values.forEach((k, v) -> put.addColumn(columnFamilyBytes, k.getBytes(), v.toArray()));
+            putList.add(put);
+        });
+        try {
+            ohTable.put(putList);
+        } catch (IOException e) {
+            if (debug) {
+                System.err.println("Error doing batch: " + e);
+            }
+            return Status.ERROR;
+        }
+        return Status.OK;
+    }
+
+    @Override
+    public Status batchRead(String table, Set<String> fields, Map<String, Map<String, ByteIterator>> valuesMap) {
+        List<Get> getList = new ArrayList<>();
+        valuesMap.keySet().forEach(key -> {
+            Get get = new Get(key.getBytes());
+            if (fields == null) {
+                get.addFamily(columnFamilyBytes);
+            } else {
+                for (String field : fields) {
+                    get.addColumn(columnFamilyBytes, Bytes.toBytes(field));
+                }
+            }
+            getList.add(get);
+        });
+        try {
+            Result[] res = ohTable.get(getList);
+            if (res == null || res.length == 0) {
+                if (debug) {
+                    System.out.println("Result is empty");
+                }
+                return Status.NOT_FOUND;
+            }
+            for (int i = 0; i < res.length; i++) {
+                if (res[i] == null || ((Result)res[i]).isEmpty()) {
+                    if (debug) {
+                        System.out.println("Result for key: " + getList.get(i).getRow() + " is empty");
+                    }
+                    continue;
+                }
+                while (res[i].advance()) {
+                    final Cell c = res[i].current();
+                    Map<String, ByteIterator> result = valuesMap.get(Bytes.toString(CellUtil.cloneRow(c)));
+                    result.put(Bytes.toString(CellUtil.cloneQualifier(c)),
+                            new ByteArrayByteIterator(CellUtil.cloneValue(c)));
+                    if (debug) {
+                        System.out.println(
+                                "Result for field: " + Bytes.toString(CellUtil.cloneQualifier(c))
+                                        + " is: " + Bytes.toString(CellUtil.cloneValue(c)));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            if (debug) {
+                System.err.println("Error doing batch read: " + e);
+            }
+            return Status.ERROR;
+        }
+        return Status.OK;
+    }
 }

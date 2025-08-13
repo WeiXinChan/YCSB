@@ -20,6 +20,7 @@ package com.yahoo.ycsb;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Vector;
@@ -261,6 +262,45 @@ public class DBWrapper extends DB
       long en=System.nanoTime();
       measure("DELETE", res, ist, st, en);
       _measurements.reportStatus("DELETE", res);
+      return res;
+    }
+  }
+
+  /**
+   * batch operation exclude read.
+   *
+   * @param table The name of the table
+   * @param valuesMap a batch operation for multiple rows.
+   * @return The result of the operation.
+   */
+  public Status batchPut(String table, Map<String, Map<String, ByteIterator>> valuesMap) {
+    try (final TraceScope span = _tracer.newScope(SCOPE_STRING_INSERT)) {
+      long ist = _measurements.getIntendedtartTimeNs();
+      long st = System.nanoTime();
+      Status res = _db.batchPut(table, valuesMap);
+      long en = System.nanoTime();
+      measure("BATCH_PUT", res, ist, st, en);
+      _measurements.reportStatus("BATCH_PUT", res);
+      return res;
+    }
+  }
+
+  /**
+   * batch read operation.
+   *
+   * @param table The name of the table
+   * @param fields The list of fields to read, or null for all of them
+   * @param valuesMap a batch operation for multiple rows.
+   * @return The result of the operation.
+   */
+  public Status batchRead(String table, Set<String> fields, Map<String, Map<String, ByteIterator>> valuesMap) {
+    try (final TraceScope span = _tracer.newScope(SCOPE_STRING_READ)) {
+      long ist = _measurements.getIntendedtartTimeNs();
+      long st = System.nanoTime();
+      Status res = _db.batchRead(table, fields, valuesMap);
+      long en = System.nanoTime();
+      measure("BATCH_READ", res, ist, st, en);
+      _measurements.reportStatus("BATCH_READ", res);
       return res;
     }
   }
