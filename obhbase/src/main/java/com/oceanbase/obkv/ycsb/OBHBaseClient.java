@@ -39,6 +39,7 @@ public class OBHBaseClient extends DB {
     private String             table;
     public boolean             debug         = false;
     private OHTable            ohTable;
+    private int                zeropadding;
 
     /**
      * 初始化，可以从 java 启动参数中传入
@@ -114,7 +115,31 @@ public class OBHBaseClient extends DB {
             && (getProperties().getProperty("debug").compareTo("true") == 0)) {
             debug = true;
         }
+        zeropadding = Integer.parseInt(getProperties().getProperty("zeropadding", "12"));   
         columnFamilyBytes = Bytes.toBytes(columnFamily);
+    }
+
+    /**
+     * 将零填充的字符串转换为long，加上指定值，再转换回零填充字符串
+     * @param paddedKey 零填充的字符串，如"00000028500000"
+     * @param increment 要加上的值
+     * @param paddingLength 填充长度
+     * @return 转换后的零填充字符串
+     */
+    private String incrementPaddedKey(String paddedKey, long increment, int paddingLength) {
+        long keyNum = Long.parseLong(paddedKey);
+        long newKeyNum = keyNum + increment;
+        return String.format("%0" + paddingLength + "d", newKeyNum);
+    }
+
+    /**
+     * 将零填充的字符串转换为long，加上指定值，再转换回零填充字符串（使用配置的填充长度）
+     * @param paddedKey 零填充的字符串，如"00000028500000"
+     * @param increment 要加上的值
+     * @return 转换后的零填充字符串
+     */
+    private String incrementPaddedKey(String paddedKey, long increment) {
+        return incrementPaddedKey(paddedKey, increment, zeropadding);
     }
 
     /**
@@ -149,11 +174,13 @@ public class OBHBaseClient extends DB {
         } catch (ConcurrentModificationException e) {
             return SERVICE_UNAVAILABLE;
         }
-        for (KeyValue kv : r.raw()) {
-            result.put(Bytes.toString(kv.getQualifier()), new ByteArrayByteIterator(kv.getValue()));
+        while (r.advance()) {
+            final Cell cell = r.current();
+            result.put(Bytes.toString(CellUtil.cloneQualifier(cell)), 
+                      new ByteArrayByteIterator(CellUtil.cloneValue(cell)));
             if (debug) {
-                System.out.println("Result for field: " + Bytes.toString(kv.getQualifier())
-                                   + " is: " + Bytes.toString(kv.getValue()));
+                System.out.println("Result for field: " + Bytes.toString(CellUtil.cloneQualifier(cell))
+                                   + " is: " + Bytes.toString(CellUtil.cloneValue(cell)));
             }
         }
         return OK;
@@ -174,9 +201,10 @@ public class OBHBaseClient extends DB {
         Scan scan = new Scan(Bytes.toBytes(startkey));
         scan.setCaching(recordcount);
         scan.setMaxVersions(1);
-//            scan.setStartRow(startkey.getBytes());
-//            scan.setStopRow(startkey.getBytes());
-        //add specified fields or else all fields
+        // 计算结束key并设置scan范围
+        String endKeyStr = incrementPaddedKey(startkey, recordcount);
+        scan.setStopRow(Bytes.toBytes(endKeyStr));
+       
         if (fields == null) {
             scan.addFamily(columnFamilyBytes);
         } else {
@@ -249,7 +277,7 @@ public class OBHBaseClient extends DB {
                 System.out.println("Adding field/value " + entry.getKey() + "/" + entry.getValue()// NOPMD
                                    + " to put request");// NOPMD
             }
-            p.add(columnFamilyBytes, Bytes.toBytes(entry.getKey()), entry.getValue().toArray());
+            p.addColumn(columnFamilyBytes, Bytes.toBytes(entry.getKey()), entry.getValue().toArray());
         }
         try {
             ohTable.put(p);
@@ -279,7 +307,7 @@ public class OBHBaseClient extends DB {
     @Override
     public Status delete(String table, String key) {
         Delete delete = new Delete(Bytes.toBytes(key));
-        delete.deleteFamily(columnFamilyBytes);
+        delete.addFamily(columnFamilyBytes);
         try {
             ohTable.delete(delete);
             return OK;
