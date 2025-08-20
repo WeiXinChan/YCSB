@@ -24,12 +24,13 @@
 
 package site.ycsb.db;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import com.alipay.oceanbase.rpc.ObTableClient;
-import com.alipay.oceanbase.rpc.mutation.Insert;
 import com.alipay.oceanbase.rpc.mutation.InsertOrUpdate;
-import com.alipay.oceanbase.rpc.mutation.Put;
-import com.alipay.oceanbase.rpc.mutation.result.MutationResult;
+import com.alipay.oceanbase.rpc.get.Get;
 import com.alipay.oceanbase.rpc.property.Property;
+import com.alipay.oceanbase.rpc.mutation.BatchOperation;
 import site.ycsb.ByteIterator;
 import site.ycsb.DB;
 import site.ycsb.DBException;
@@ -43,6 +44,7 @@ import java.util.Set;
 import java.util.Vector;
 
 import static com.alipay.oceanbase.rpc.mutation.MutationFactory.colVal;
+import static com.alipay.oceanbase.rpc.mutation.MutationFactory.row;
 
 /**
  * YCSB binding for <a href="http://obkv.io/">obkv</a>.
@@ -50,63 +52,95 @@ import static com.alipay.oceanbase.rpc.mutation.MutationFactory.colVal;
  * See {@code obkv/README.md} for details.
  */
 public class OBKVClient extends DB {
-  public static final String FULL_USER_NAME          = "obkv.fullUserName";
-  public static final String CONFIG_URL              = "obkv.configUrl";
-  public static final String PASSWORD                = "obkv.password";
-  public static final String SYS_USER_NAME           = "obkv.sysUserName";
-  public static final String SYS_PASSWORD            = "obkv.sysPassword";
-  public static final String TABLE_NAME              = "obkv.tableName";
-  public static final String OPERATION_TIMEOUT       = "obkv.operationTimeout";
-  public static final String USE_PUT                 = "obkv.usePut";
-  public static final String USE_INSERT_UP           = "obkv.useInsertUp";
-  public static final String ROWKEY_NAME             = "obkv.rowKeyName";
+  public static final String PROP_KEY_ODP_MODE                = "obkv.isOdpMode";
+  public static final String PROP_KEY_ODP_ADDR                = "obkv.odpAddr";
+  public static final String PROP_KEY_ODP_PORT                = "obkv.odpPort";
+  public static final String PROP_KEY_DATABASE                = "obkv.database";
 
-  private ObTableClient client = new ObTableClient();;
+  public static final String PROP_KEY_FULL_USER_NAME          = "obkv.fullUserName";
+  public static final String PROP_KEY_CONFIG_URL              = "obkv.configUrl";
+  public static final String PROP_KEY_PASSWORD                = "obkv.password";
+  public static final String PROP_KEY_SYS_USER_NAME           = "obkv.sysUserName";
+  public static final String PROP_KEY_SYS_PASSWORD            = "obkv.sysPassword";
+
+  public static final String PROP_KEY_TABLE_NAME              = "obkv.tableName";
+  public static final String PROP_KEY_BATCH_SIZE              = "obkv.batchSize";
+  public static final String PROP_KEY_IS_HEAP_TABLE           = "obkv.isHeapTable";
+  public static final String PROP_KEY_DEBUG                   = "obkv.debug";
+  public static final String PROP_KEY_DATA_LENGTH             = "obkv.dataLength";
+  public static final String PROP_KEY_THREAD_COUNT            = "obkv.threadCount";
+
+  private ObTableClient client = new ObTableClient();
   private String tableName;
-  private boolean usePut = false;
-  private boolean useInsertUp = false;
-  private String operationTimeout;
-  private String rowKeyName = "ycsb_key";
-  
+  private boolean debug = false;
+  private int batchSize = 0;
+  private boolean isHeapTable = false;
+  private int dataLength = 10240;
+  private int threadCount = 3;
+  private ExecutorService executorService;
+
   public void init() throws DBException {
+    boolean isOdpMode = false;
     Properties props = getProperties();
-    String fullUserName = props.getProperty(FULL_USER_NAME);
-    if (fullUserName == null) {
-      throw new DBException("fullUserName is not set");
+    if (props.getProperty(PROP_KEY_ODP_MODE) != null) {
+      isOdpMode = Boolean.parseBoolean(props.getProperty(PROP_KEY_ODP_MODE));
+      client.setOdpMode(isOdpMode);
     }
-    client.setFullUserName(fullUserName);
-
-    String configUrl = props.getProperty(CONFIG_URL);
-    if (configUrl == null) {
-      throw new DBException("configUrl is not set");
+    if (isOdpMode) { 
+      client.setFullUserName(props.getProperty(PROP_KEY_FULL_USER_NAME));
+      client.setOdpAddr(props.getProperty(PROP_KEY_ODP_ADDR));
+      client.setOdpPort(Integer.parseInt(props.getProperty(PROP_KEY_ODP_PORT)));
+      client.setDatabase(props.getProperty(PROP_KEY_DATABASE));
+      client.setPassword(props.getProperty(PROP_KEY_PASSWORD));
+    } else {
+      client.setFullUserName(props.getProperty(PROP_KEY_FULL_USER_NAME));
+      client.setParamURL(props.getProperty(PROP_KEY_CONFIG_URL));
+      client.setPassword(props.getProperty(PROP_KEY_PASSWORD));
+      client.setSysUserName(props.getProperty(PROP_KEY_SYS_USER_NAME));
+      client.setSysPassword(props.getProperty(PROP_KEY_SYS_PASSWORD));
     }
-    client.setParamURL(configUrl);
 
-    String password = props.getProperty(PASSWORD);
-    if (password == null) {
-      throw new DBException("password is not set");
+    // Some other useful property
+    for (Property property : Property.values()) {
+      String value = props.getProperty(property.getKey());
+      if (value != null) {
+        client.addProperty(property.getKey(), value);
+      }
     }
-    client.setPassword(password);
 
-    String sysUserName = props.getProperty(SYS_USER_NAME);
-    if (sysUserName == null) {
-      throw new DBException("sysUserName is not set");
+    // batch size
+    if (props.getProperty(PROP_KEY_BATCH_SIZE) != null) {
+      batchSize = Integer.parseInt(props.getProperty(PROP_KEY_BATCH_SIZE));
     }
-    client.setSysUserName(sysUserName);
 
-    String sysPassword = props.getProperty(SYS_PASSWORD);
-    if (sysPassword == null) {
-      throw new DBException("sysPassword is not set");
+    // is heap table
+    if (props.getProperty(PROP_KEY_IS_HEAP_TABLE) != null) {
+      isHeapTable = Boolean.parseBoolean(props.getProperty(PROP_KEY_IS_HEAP_TABLE));
     }
-    client.setSysPassword(sysPassword);
 
-    tableName = (String) props.getOrDefault(TABLE_NAME, "usertable");
+    // debug
+    if (props.getProperty(PROP_KEY_DEBUG) != null) {
+      debug = Boolean.parseBoolean(props.getProperty(PROP_KEY_DEBUG));
+    }
 
-    rowKeyName = (String) props.getOrDefault(ROWKEY_NAME, "ycsb_key");
-    usePut = Boolean.parseBoolean(props.getProperty(USE_PUT, "false"));
-    useInsertUp = Boolean.parseBoolean(props.getProperty(USE_INSERT_UP, "false"));
-    operationTimeout = (String) props.getOrDefault(OPERATION_TIMEOUT, "3000");
-    client.addProperty(Property.RPC_EXECUTE_TIMEOUT.getKey(), operationTimeout);
+    if (debug) {
+      System.out.println("isOdpMode: " + isOdpMode);
+      System.out.println("isHeapTable: " + isHeapTable);
+      System.out.println("batchSize: " + batchSize);
+    }
+
+    // data length
+    if (props.getProperty(PROP_KEY_DATA_LENGTH) != null) {
+      dataLength = Integer.parseInt(props.getProperty(PROP_KEY_DATA_LENGTH));
+    }
+
+    // thread count
+    if (props.getProperty(PROP_KEY_THREAD_COUNT) != null) {
+      threadCount = Integer.parseInt(props.getProperty(PROP_KEY_THREAD_COUNT));
+    }
+
+    executorService = Executors.newFixedThreadPool(threadCount);
+    client.setRuntimeBatchExecutor(executorService);
 
     try {
       client.init();
@@ -124,87 +158,123 @@ public class OBKVClient extends DB {
       e.printStackTrace();
     }
   }
+  
+  // 高效生成指定长度的随机字符串
+  private String generateRandomString(int length) {
+    if (length <= 0) {
+      return "";
+    }
+    
+    // 使用char数组而不是StringBuilder，减少内存分配
+    char[] chars = new char[length];
+    
+    // 预定义字符集，避免重复创建
+    final char[] charSet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".toCharArray();
+    final int charSetLength = charSet.length;
+    
+    // 使用ThreadLocalRandom提高性能，避免synchronized
+    java.util.concurrent.ThreadLocalRandom random = java.util.concurrent.ThreadLocalRandom.current();
+    
+    // 批量生成随机字符，减少方法调用开销
+    for (int i = 0; i < length; i++) {
+      chars[i] = charSet[random.nextInt(charSetLength)];
+    }
+    
+    return new String(chars);
+  }
+
+  // key + i
+  private String getPageRowKey(String key, int i) {
+    return key + "_" + i;
+  }
+
+  // 随机 dataLength/2 长度字符串
+  private String getRequest() {
+    return generateRandomString(dataLength/2);
+  }
+
+  // 随机 dataLength/2 长度字符串
+  private String getRawPage() {
+    return generateRandomString(dataLength/2);
+  }
+
+  // "page" + 随机数
+  private String getPageCode() {
+    return "page" + (int)(Math.random() * 1000000);
+  }
+
+  // 当前时间戳
+  private long getTimestamp() {
+    return System.currentTimeMillis();
+  }
+
+  /*
+    CREATE TABLE `usertable` (
+      `pagerowkey` varchar(1024) NOT NULL,
+      `request` longtext DEFAULT NULL,
+      `rawpage` longblob NOT NULL,
+      `pagecode` varchar(1024) NOT NULL,
+      `timestamp` bigint(20) NOT NULL,
+      `_expire_ts` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY(pagerowkey)
+    ) TTL(_expire_ts + INTERVAL 30 DAY) PARTITION BY KEY(pagerowkey) PARTITIONS 66;
+
+     CREATE TABLE `usertable` (
+      `pagerowkey` varchar(1024) NOT NULL,
+      `request` longtext DEFAULT NULL,
+      `rawpage` longblob NOT NULL,
+      `pagecode` varchar(1024) NOT NULL,
+      `timestamp` bigint(20) NOT NULL,
+      `_expire_ts` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE INDEX idx_unique_pagerowkey (pagerowkey)
+    ) ORGANIZATION = HEAP TTL(_expire_ts + INTERVAL 30 DAY) PARTITION BY KEY(pagerowkey) PARTITIONS 66;
+    
+    select length(pagerowkey) + length(request) + length(rawpage) + length(pagecode) from usertable limit 1;
+  */
+  @Override
+  public Status insert(String table, String key, Map<String, ByteIterator> values) {
+    try {
+      BatchOperation batch = client.batchOperation(table);
+      for (int i = 0; i < batchSize; i++) {
+        InsertOrUpdate insUp = client.insertOrUpdate(table);
+        insUp.setRowKey(row(colVal("pagerowkey", getPageRowKey(key, i))));
+        if (isHeapTable) {
+          insUp.addMutateColVal(colVal("pagerowkey", getPageRowKey(key, i)), 
+              colVal("request", getRequest()), 
+              colVal("rawpage", getRawPage()), 
+              colVal("pagecode", getPageCode()), 
+              colVal("timestamp", getTimestamp()));
+        } else {
+          insUp.addMutateColVal(colVal("request", getRequest()), 
+              colVal("rawpage", getRawPage()), 
+              colVal("pagecode", getPageCode()), 
+              colVal("timestamp", getTimestamp()));
+        }
+        batch.addOperation(insUp);
+      }
+      batch.execute();
+    } catch (Exception e) {
+      System.out.println(e.getMessage());
+      return Status.ERROR;
+    }
+
+    return Status.OK;
+  }
 
   @Override
   public Status read(String table, String key, Set<String> fields, Map<String, ByteIterator> result) {
-    return Status.NOT_IMPLEMENTED;
-  }
-
-  private Status put(String table, String key, Map<String, ByteIterator> values) {
     try {
-      Put put = client.put(tableName);
-      put.setRowKey(colVal(rowKeyName, key));
-
-      for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
-        String propName = entry.getKey();
-        ByteIterator propValue = entry.getValue();
-        put.addMutateColVal(colVal(propName, propValue.toString()));
+      BatchOperation batch = client.batchOperation(table);
+      for (int i = 0; i < batchSize; i++) {
+        Get get = client.get(table);
+        get.setRowKey(row(colVal("pagerowkey", getPageRowKey(key, i))));
+        batch.addOperation(get);
       }
-
-      MutationResult res = put.execute();
-      if (res.getAffectedRows() != 1) {
-        return Status.ERROR;
-      }
+      batch.execute();
     } catch (Exception e) {
       System.out.println(e.getMessage());
       return Status.ERROR;
     }
-
-    return Status.OK;
-  }
-
-  private Status insertUp(String table, String key, Map<String, ByteIterator> values) {
-    try {
-      InsertOrUpdate insertUp = client.insertOrUpdate(tableName);
-      insertUp.setRowKey(colVal(rowKeyName, key));
-
-      for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
-        String propName = entry.getKey();
-        ByteIterator propValue = entry.getValue();
-        insertUp.addMutateColVal(colVal(propName, propValue.toString()));
-      }
-
-      MutationResult res = insertUp.execute();
-      if (res.getAffectedRows() != 1 || res.getAffectedRows() != 2) {
-        return Status.ERROR;
-      }
-    } catch (Exception e) {
-      System.out.println(e.getMessage());
-      return Status.ERROR;
-    }
-
-    return Status.OK;
-  }
-
-  @Override
-  public Status insert(String table, String key, Map<String, ByteIterator> values) {
-    if (usePut) {
-      return put(table, key, values);
-    }
-
-    if (useInsertUp) {
-      return insertUp(table, key, values);
-    }
-
-    try {
-      Insert insert = client.insert(tableName);
-      insert.setRowKey(colVal(rowKeyName, key));
-
-      for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
-        String propName = entry.getKey();
-        ByteIterator propValue = entry.getValue();
-        insert.addMutateColVal(colVal(propName, propValue.toString()));
-      }
-
-      MutationResult res = insert.execute();
-      if (res.getAffectedRows() != 1) {
-        return Status.ERROR;
-      }
-    } catch (Exception e) {
-      System.out.println(e.getMessage());
-      return Status.ERROR;
-    }
-
     return Status.OK;
   }
 

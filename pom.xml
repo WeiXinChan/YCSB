@@ -113,7 +113,7 @@ LICENSE file.
     <!-- datastore binding versions, lex sorted -->
     <hbase1.version>1.4.12</hbase1.version>
     <hbase2.version>2.2.3</hbase2.version>
-    <obkv.version>1.2.8-ycsb</obkv.version>
+    <obkv.version>2.1.1-SNAPSHOT</obkv.version>
   </properties>
 
   <modules>

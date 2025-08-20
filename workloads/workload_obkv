@@ -22,30 +22,50 @@
 #   Default data size: 1 KB records (10 fields, 100 bytes each, plus key)
 #   Request distribution: zipfian
 
-recordcount=1000
-operationcount=1000
-workload=site.ycsb.workloads.CoreWorkload
 
+workload=site.ycsb.workloads.CoreWorkload
 readallfields=true
 
+#### 运行参数 ####
+recordcount=1
+operationcount=1
+threadcount=1
 readproportion=0
 updateproportion=0
 scanproportion=0
 insertproportion=1
 
-requestdistribution=zipfian
+#### 数据分布参数 ####
+requestdistribution=uniform
 
 # obkv configs
-## for login
+#### 连接参数 ####
+obkv.isOdpMode=false
+obkv.odpAddr=
+obkv.odpPort=
+# obkv.fullUserName=
+# obkv.password=
+obkv.database=
+
 obkv.fullUserName=
 obkv.configUrl=
 obkv.password=
 obkv.sysUserName=root
 obkv.sysPassword=
 
-
+#### 表属性参数 ####
+obkv.isHeapTable=false
 obkv.tableName=usertable
-obkv.operationTimeout=3000
-obkv.usePut=true
-obkv.useInsertUp=false
-obkv.rowKeyName=ycsb_key
+obkv.batchSize=1
+obkv.dataLength=10240
+obkv.threadCount=3
+
+#### 查询参数 ####
+rpc.operation.timeout=10000
+rpc.execute.timeout=15000
+
+#### 连接池 ####
+server.connection.pool.size=50
+
+### debug ###
+obkv.debug=
