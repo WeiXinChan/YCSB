@@ -16,13 +16,13 @@
  */
 
 package com.oceanbase.obkv.ycsb;
-import com.alipay.oceanbase.hbase.OHTable;
 import com.alipay.oceanbase.rpc.property.Property;
 import com.yahoo.ycsb.*;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.util.Bytes;
 import java.io.IOException;
@@ -34,23 +34,123 @@ import static org.apache.commons.lang.StringUtils.isNotBlank;
 public class OBHBaseClient extends DB {
     public static final String COLUMN_FAMILY = "hbase.oceanbase.columnFamily";
     public static final String TABLE         = "hbase.oceanbase.table";
+    public static final String HBASE_MASTER  = "hbase.master";
+    public static final String ZOOKEEPER_QUORUM = "hbase.zookeeper.quorum";
+    public static final String ZOOKEEPER_CLIENT_PORT = "hbase.zookeeper.property.clientPort";
+    public static final String HBASE_CLIENT_IPC_POOL_SIZE = "hbase.client.ipc.pool.size";
     private String             columnFamily;
     private byte[]             columnFamilyBytes;
-    private String             table;
+    private String             tableName;
     public boolean             debug         = false;
-    private OHTable            ohTable;
+    private Connection connection = null;
     private int                zeropadding;
+    private boolean            isObkv = true;
+
+    @Override
+    public void cleanup() throws DBException {
+        if (connection != null) {
+            try {
+                connection.close();
+            } catch (IOException e) {
+                throw new DBException(e);
+            }
+        }
+    }
 
     /**
      * 初始化，可以从 java 启动参数中传入
      * @throws DBException exception
      */
     public void init() throws DBException {
+        debug = Boolean.parseBoolean(getProperties().getProperty("debug"));
+        isObkv = Boolean.parseBoolean(getProperties().getProperty("isObkv"));
+        columnFamily = getProperties().getProperty(COLUMN_FAMILY);
+        tableName = getProperties().getProperty(TABLE);
+        columnFamilyBytes = Bytes.toBytes(columnFamily);
+        System.out.println("columnFamily: " + columnFamily);
+        System.out.println("table: " + tableName);
+        System.out.println("debug: " + debug);
+        System.out.println("isObkv: " + isObkv);
+        Configuration config = HBaseConfiguration.create();
+        if (isObkv) {
+            config.set(ClusterConnection.HBASE_CLIENT_CONNECTION_IMPL, "com.alipay.oceanbase.hbase.util.OHConnectionImpl");
+            initObkvConfig(config);
+        } else {
+            // 不设置hbase.master，让HBase通过ZooKeeper自动发现
+            // config.set("hbase.master", getProperties().getProperty("hbase.master", "127.0.0.1:16000"));
+            config.set(ZOOKEEPER_QUORUM, getProperties().getProperty(ZOOKEEPER_QUORUM, "127.0.0.1"));
+            config.set(ZOOKEEPER_CLIENT_PORT, getProperties().getProperty(ZOOKEEPER_CLIENT_PORT, "2181"));
+            config.set(HBASE_CLIENT_IPC_POOL_SIZE, getProperties().getProperty(HBASE_CLIENT_IPC_POOL_SIZE, "256"));
+            
+            // 添加超时配置，防止卡死
+            config.set("hbase.client.operation.timeout", "10000"); // 10秒操作超时
+            config.set("hbase.client.scanner.timeout.period", "10000"); // 10秒扫描超时
+            config.set("hbase.rpc.timeout", "10000"); // 10秒RPC超时
+            config.set("hbase.client.retries.number", "1"); // 重试次数
+            config.set("hbase.client.pause", "100"); // 重试间隔100ms
+            
+            // 添加更多HBase配置
+            config.set("hbase.zookeeper.property.clientPort", getProperties().getProperty(ZOOKEEPER_CLIENT_PORT, "2181"));
+            config.set("hbase.zookeeper.quorum", getProperties().getProperty(ZOOKEEPER_QUORUM, "127.0.0.1"));
+            
+            System.out.println("HBase Configuration:");
+            System.out.println("  ZOOKEEPER_QUORUM: " + config.get(ZOOKEEPER_QUORUM));
+            System.out.println("  ZOOKEEPER_CLIENT_PORT: " + config.get(ZOOKEEPER_CLIENT_PORT));
+            System.out.println("  HBASE_MASTER: (auto-discovered via ZooKeeper)");
+            System.out.println("  HBASE_CLIENT_OPERATION_TIMEOUT: " + config.get("hbase.client.operation.timeout"));
+            System.out.println("  HBASE_RPC_TIMEOUT: " + config.get("hbase.rpc.timeout"));
+            
+            // 测试网络连接
+            System.out.println("Testing network connectivity...");
+            testNetworkConnectivity(getProperties().getProperty(ZOOKEEPER_QUORUM, "127.0.0.1"), 
+                                   Integer.parseInt(getProperties().getProperty(ZOOKEEPER_CLIENT_PORT, "2181")));
+        }
+        try {
+            System.out.println("Creating HBase connection...");
+            connection = ConnectionFactory.createConnection(config);
+            System.out.println("Connection created successfully");
+            
+            if (!isObkv) {
+                final TableName tName = TableName.valueOf(tableName);
+                System.out.println("Checking if table exists: " + tName);
+                
+                try (Admin admin = connection.getAdmin()) {
+                    System.out.println("Admin created, checking table existence...");
+                    boolean tableExists = admin.tableExists(tName);
+                    System.out.println("Table existence check completed: " + tableExists);
+                    
+                    if (!tableExists) {
+                        throw new DBException("Table " + tName + " does not exist");
+                    }
+                } catch (IOException e) {
+                    System.err.println("Error checking table existence: " + e.getMessage());
+                    if (e.getCause() != null) {
+                        System.err.println("Root cause: " + e.getCause().getMessage());
+                    }
+                    e.printStackTrace();
+                }
+                System.out.println("Table exists and is accessible");
+            }
+        } catch (IOException e) {
+            System.err.println("Error during HBase initialization: " + e.getMessage());
+            if (e.getCause() != null) {
+                System.err.println("Root cause: " + e.getCause().getMessage());
+            }
+            e.printStackTrace();
+            throw new DBException(e);
+        } catch (Exception e) {
+            System.err.println("Unexpected error during HBase initialization: " + e.getMessage());
+            if (e.getCause() != null) {
+                System.err.println("Root cause: " + e.getCause().getMessage());
+            }
+            e.printStackTrace();
+            throw new DBException(e);
+        }
+    }
+
+    private void initObkvConfig(Configuration config) throws DBException {
         Properties props = getProperties();
-        columnFamily = props.getProperty(COLUMN_FAMILY);
-        table = props.getProperty(TABLE);
         boolean odpMode = false;
-        Configuration conf = new Configuration();
 
         if (!isNotBlank(props.getProperty(COLUMN_FAMILY))) {
             throw new DBException("columnFamily is blank!");
@@ -66,57 +166,97 @@ public class OBHBaseClient extends DB {
             odpMode = Boolean.parseBoolean(props.getProperty(HBASE_OCEANBASE_ODP_MODE));
         }
         if (odpMode) {
-            conf.setBoolean(HBASE_OCEANBASE_ODP_MODE, true);
-            conf.set(HBASE_OCEANBASE_FULL_USER_NAME,
-                props.getProperty(HBASE_OCEANBASE_FULL_USER_NAME));
-            conf.set(HBASE_OCEANBASE_PASSWORD, props.getProperty(HBASE_OCEANBASE_PASSWORD));
+            config.setBoolean(HBASE_OCEANBASE_ODP_MODE, true);
+            config.set(HBASE_OCEANBASE_FULL_USER_NAME, props.getProperty(HBASE_OCEANBASE_FULL_USER_NAME));
+            config.set(HBASE_OCEANBASE_PASSWORD, props.getProperty(HBASE_OCEANBASE_PASSWORD));
             if (!isNotBlank(props.getProperty(HBASE_OCEANBASE_ODP_ADDR))) {
                 throw new DBException("odp addr is blank!");
             }
-            conf.set(HBASE_OCEANBASE_ODP_ADDR, props.getProperty(HBASE_OCEANBASE_ODP_ADDR));
+            config.set(HBASE_OCEANBASE_ODP_ADDR, props.getProperty(HBASE_OCEANBASE_ODP_ADDR));
             if (!isNotBlank(props.getProperty(HBASE_OCEANBASE_ODP_PORT))) {
                 throw new DBException("odp port is blank!");
             }
-            conf.setInt(HBASE_OCEANBASE_ODP_PORT,
+            config.setInt(HBASE_OCEANBASE_ODP_PORT,
                 Integer.parseInt(props.getProperty(HBASE_OCEANBASE_ODP_PORT)));
             if (!isNotBlank(props.getProperty(HBASE_OCEANBASE_DATABASE))) {
                 throw new DBException("database name is blank!");
             }
-            conf.set(HBASE_OCEANBASE_DATABASE, props.getProperty(HBASE_OCEANBASE_DATABASE));
+            config.set(HBASE_OCEANBASE_DATABASE, props.getProperty(HBASE_OCEANBASE_DATABASE));
         } else {
             if (!isNotBlank(props.getProperty(HBASE_OCEANBASE_PARAM_URL))) {
                 throw new DBException("param url is blank!");
             }
-            conf.set(HBASE_OCEANBASE_PARAM_URL, props.getProperty(HBASE_OCEANBASE_PARAM_URL));
+            config.set(HBASE_OCEANBASE_PARAM_URL, props.getProperty(HBASE_OCEANBASE_PARAM_URL));
             if (!isNotBlank(props.getProperty(HBASE_OCEANBASE_SYS_USER_NAME))) {
                 throw new DBException("sys name is blank!");
             }
-            conf.set(HBASE_OCEANBASE_SYS_USER_NAME,
-                props.getProperty(HBASE_OCEANBASE_SYS_USER_NAME));
-            conf.set(HBASE_OCEANBASE_SYS_PASSWORD, props.getProperty(HBASE_OCEANBASE_SYS_PASSWORD));
-            conf.set(HBASE_OCEANBASE_FULL_USER_NAME,
-                props.getProperty(HBASE_OCEANBASE_FULL_USER_NAME));
-            conf.set(HBASE_OCEANBASE_PASSWORD, props.getProperty(HBASE_OCEANBASE_PASSWORD));
+            config.set(HBASE_OCEANBASE_SYS_USER_NAME, props.getProperty(HBASE_OCEANBASE_SYS_USER_NAME));
+            config.set(HBASE_OCEANBASE_SYS_PASSWORD, props.getProperty(HBASE_OCEANBASE_SYS_PASSWORD));
+            config.set(HBASE_OCEANBASE_FULL_USER_NAME, props.getProperty(HBASE_OCEANBASE_FULL_USER_NAME));
+            config.set(HBASE_OCEANBASE_PASSWORD, props.getProperty(HBASE_OCEANBASE_PASSWORD));
         }
         // Some other useful property
         for (Property property : Property.values()) {
             String value = props.getProperty(property.getKey());
             if (value != null) {
-                conf.set(property.getKey(), value);
+                config.set(property.getKey(), value);
             }
         }
 
-        try {
-            ohTable = new OHTable(conf, table);
-        } catch (Exception e) {
-            throw new DBException(e);
-        }
-        if ((getProperties().getProperty("debug") != null)
-            && (getProperties().getProperty("debug").compareTo("true") == 0)) {
-            debug = true;
-        }
         zeropadding = Integer.parseInt(getProperties().getProperty("zeropadding", "12"));   
-        columnFamilyBytes = Bytes.toBytes(columnFamily);
+    }
+
+    /**
+     * 测试网络连接
+     */
+    private void testNetworkConnectivity(String host, int port) {
+        try {
+            System.out.println("Testing network connectivity to " + host + ":" + port);
+            java.net.Socket socket = new java.net.Socket();
+            socket.connect(new java.net.InetSocketAddress(host, port), 5000);
+            System.out.println("Network connection successful to " + host + ":" + port);
+            socket.close();
+        } catch (Exception e) {
+            System.err.println("Network connection failed to " + host + ":" + port + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * 测试ZooKeeper连接
+     */
+    private void testZooKeeperConnection(String quorum, String port) {
+        try {
+            System.out.println("Testing ZooKeeper connection to " + quorum + ":" + port);
+            org.apache.zookeeper.ZooKeeper zk = new org.apache.zookeeper.ZooKeeper(
+                quorum + ":" + port, 5000, new org.apache.zookeeper.Watcher() {
+                    @Override
+                    public void process(org.apache.zookeeper.WatchedEvent event) {
+                        System.out.println("ZooKeeper event: " + event.getType());
+                    }
+                });
+            
+            // 等待连接建立
+            int retries = 0;
+            while (zk.getState() != org.apache.zookeeper.ZooKeeper.States.CONNECTED && retries < 10) {
+                Thread.sleep(1000);
+                retries++;
+                System.out.println("ZooKeeper connection attempt " + retries + ", state: " + zk.getState());
+            }
+            
+            if (zk.getState() == org.apache.zookeeper.ZooKeeper.States.CONNECTED) {
+                System.out.println("ZooKeeper connection successful");
+                // 测试基本操作
+                zk.exists("/", false);
+                System.out.println("ZooKeeper root path accessible");
+            } else {
+                System.err.println("ZooKeeper connection failed, state: " + zk.getState());
+            }
+            
+            zk.close();
+        } catch (Exception e) {
+            System.err.println("ZooKeeper connection test failed: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -167,7 +307,7 @@ public class OBHBaseClient extends DB {
                     g.addColumn(columnFamilyBytes, Bytes.toBytes(field));
                 }
             }
-            r = ohTable.get(g);
+            r = connection.getTable(TableName.valueOf(tableName)).get(g);
         } catch (IOException e) {
             System.err.println("Error doing get: " + e);
             return SERVICE_UNAVAILABLE;
@@ -215,7 +355,7 @@ public class OBHBaseClient extends DB {
 
         ResultScanner scanner = null;
         try {
-            scanner = ohTable.getScanner(scan);
+            scanner = connection.getTable(TableName.valueOf(tableName)).getScanner(scan);
             int numResults = 0;
 
             for (Result rr = scanner.next(); rr != null; rr = scanner.next()) {
@@ -280,7 +420,10 @@ public class OBHBaseClient extends DB {
             p.addColumn(columnFamilyBytes, Bytes.toBytes(entry.getKey()), entry.getValue().toArray());
         }
         try {
-            ohTable.put(p);
+            connection.getTable(TableName.valueOf(tableName)).put(p);
+            if (debug) {
+                System.out.println("put success");
+            }
         } catch (IOException e) {
             if (debug) {
                 System.err.println("Error doing put: " + e);// NOPMD
@@ -309,7 +452,7 @@ public class OBHBaseClient extends DB {
         Delete delete = new Delete(Bytes.toBytes(key));
         delete.addFamily(columnFamilyBytes);
         try {
-            ohTable.delete(delete);
+            connection.getTable(TableName.valueOf(tableName)).delete(delete);
             return OK;
         } catch (IOException e) {
             if (debug) {
@@ -328,7 +471,7 @@ public class OBHBaseClient extends DB {
             putList.add(put);
         });
         try {
-            ohTable.put(putList);
+            connection.getTable(TableName.valueOf(tableName)).put(putList);
         } catch (IOException e) {
             if (debug) {
                 System.err.println("Error doing batch: " + e);
@@ -353,7 +496,8 @@ public class OBHBaseClient extends DB {
             getList.add(get);
         });
         try {
-            Result[] res = ohTable.get(getList);
+            Result[] res = null;
+            res = connection.getTable(TableName.valueOf(tableName)).get(getList);
             if (res == null || res.length == 0) {
                 if (debug) {
                     System.out.println("Result is empty");

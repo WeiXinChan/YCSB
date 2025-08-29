@@ -23,9 +23,12 @@
 #   Request distribution: zipfian
 
 workload=com.yahoo.ycsb.workloads.CoreWorkload
+isObkv=false
+debug=false
 
-recordcount=30000000
-operationcount=30000000
+
+recordcount=1
+operationcount=1
 
 # The number of fields in a record
 fieldcount=10
@@ -41,7 +44,7 @@ scanproportion=0
 requestdistribution=uniform
 
 # threadcounts
-threadcount=10
+threadcount=1
 
 #### 以下连接方式二选一 ####
 hbase.oceanbase.odpMode=false
@@ -59,6 +62,22 @@ hbase.oceanbase.fullUserName=
 hbase.oceanbase.password=
 
 #### db、table、column family ####
-hbase.oceanbase.database=
-hbase.oceanbase.table=
-hbase.oceanbase.columnFamily=
+hbase.oceanbase.database=test
+hbase.oceanbase.table=test
+hbase.oceanbase.columnFamily=cf
+
+#### 连接池 ####
+server.connection.pool.size=50
+
+#### HBase/Lindorn 配置 ####
+hbase.zookeeper.quorum=127.0.0.1
+hbase.zookeeper.property.clientPort=2181
+hbase.client.username=root
+hbase.client.password=root
+
+# HBase超时配置，防止卡死
+hbase.client.operation.timeout=10000
+hbase.client.scanner.timeout.period=10000
+hbase.rpc.timeout=10000
+hbase.client.retries.number=1
+hbase.client.pause=100
