@@ -105,6 +105,13 @@ public class CoreWorkload extends Workload {
    */
   public static final String FIELD_COUNT_PROPERTY_DEFAULT = "10";
 
+
+  /**
+   * Whether or not this is the transaction phase (run) or not (load).
+   */
+  public static final String DO_TRANSACTIONS_PROPERTY = "dotransactions";
+
+
   int fieldcount;
 
   private List<String> fieldnames;
@@ -486,6 +493,10 @@ public class CoreWorkload extends Workload {
           ExponentialGenerator.EXPONENTIAL_FRAC_DEFAULT));
       keychooser = new ExponentialGenerator(percentile, recordcount * frac);
     } else {
+      orderedinserts = true;
+    }
+
+    if (p.getProperty(DO_TRANSACTIONS_PROPERTY, "true").equals("false")) {
       orderedinserts = true;
     }
 
