@@ -70,10 +70,10 @@ hbase.oceanbase.columnFamily=cf
 server.connection.pool.size=50
 
 #### HBase/Lindorn 配置 ####
-hbase.zookeeper.quorum=127.0.0.1
-hbase.zookeeper.property.clientPort=2181
-hbase.client.username=root
-hbase.client.password=root
+hbase.zookeeper.quorum=
+hbase.zookeeper.property.clientPort=
+hbase.client.username=
+hbase.client.password=
 
 # HBase超时配置，防止卡死
 hbase.client.operation.timeout=10000
