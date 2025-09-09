@@ -132,4 +132,33 @@ public abstract class DB {
    * @return The result of the operation.
    */
   public abstract Status delete(String table, String key);
+
+  /**
+   *
+   * @param table     The name of the table
+   * @param valuesMap The multi-records key of the record to insert.
+   * @return The result of the operation.
+   */
+  public Status batchInsert(String table, Map<String, Map<String, ByteIterator>> valuesMap) {
+    throw new RuntimeException("batch insert must be implemented by current db");
+  }
+
+  /**
+   *
+   * @param table     The name of the table
+   * @param valuesMap The multi-records key of the record operation.
+   * @return The result of the operation.
+   */
+  public Status batch(String table, Map<String, Map<String, ByteIterator>> valuesMap) {
+    throw new RuntimeException("batch must be implemented by current db");
+  }
+
+  /**
+   *
+   * @param table     The name of the table
+   * @param valuesMap The multi-records key of the record operation.
+   */
+  public Status batchRead(String table, Map<String, Set<String>> valuesMap) {
+    throw new RuntimeException("batch read must be implemented by current db");
+  }
 }

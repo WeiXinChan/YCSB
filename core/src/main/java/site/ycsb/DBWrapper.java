@@ -52,6 +52,9 @@ public class DBWrapper extends DB {
   private final String scopeStringRead;
   private final String scopeStringScan;
   private final String scopeStringUpdate;
+  private final String scopeStringBatchInsert;
+  private final String scopeStringBatchRead;
+  private final String scopeStringBatch;
 
   public DBWrapper(final DB db, final Tracer tracer) {
     this.db = db;
@@ -65,6 +68,9 @@ public class DBWrapper extends DB {
     scopeStringRead = simple + "#read";
     scopeStringScan = simple + "#scan";
     scopeStringUpdate = simple + "#update";
+    scopeStringBatchInsert = simple + "#batch-insert";
+    scopeStringBatchRead = simple + "#batch-read";
+    scopeStringBatch = simple + "#batch";
   }
 
   /**
@@ -247,6 +253,45 @@ public class DBWrapper extends DB {
       long en = System.nanoTime();
       measure("DELETE", res, ist, st, en);
       measurements.reportStatus("DELETE", res);
+      return res;
+    }
+  }
+
+  @Override
+  public Status batchInsert(String table, Map<String, Map<String, ByteIterator>> valuesMap) {
+    try (final TraceScope span = tracer.newScope(scopeStringBatchInsert)) {
+      long ist = measurements.getIntendedStartTimeNs();
+      long st = System.nanoTime();
+      Status res = db.batchInsert(table, valuesMap);
+      long en = System.nanoTime();
+      measure("BATCH-INSERT", res, ist, st, en);
+      measurements.reportStatus("BATCH-INSERT", res);
+      return res;
+    }
+  }
+
+  @Override
+  public Status batch(String table, Map<String, Map<String, ByteIterator>> valuesMap) {
+    try (final TraceScope span = tracer.newScope(scopeStringBatch)) {
+      long ist = measurements.getIntendedStartTimeNs();
+      long st = System.nanoTime();
+      Status res = db.batch(table, valuesMap);
+      long en = System.nanoTime();
+      measure("BATCH", res, ist, st, en);
+      measurements.reportStatus("BATCH", res);
+      return res;
+    }
+  }
+
+  @Override
+  public Status batchRead(String table, Map<String, Set<String>> valuesMap) {
+    try (final TraceScope span = tracer.newScope(scopeStringBatchRead)) {
+      long ist = measurements.getIntendedStartTimeNs();
+      long st = System.nanoTime();
+      Status res = db.batchRead(table, valuesMap);
+      long en = System.nanoTime();
+      measure("BATCH-READ", res, ist, st, en);
+      measurements.reportStatus("BATCH-READ", res);
       return res;
     }
   }

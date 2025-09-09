@@ -102,4 +102,8 @@ public abstract class ByteIterator implements Iterator<Byte> {
     return ret;
   }
 
+  public Object getObject(){
+    return this.toString();
+  }
+
 }
