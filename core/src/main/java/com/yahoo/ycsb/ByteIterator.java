@@ -92,4 +92,6 @@ public abstract class ByteIterator implements Iterator<Byte> {
 	    return ret;
 	}
 
+	public void resetOffset() {}
+
 }
