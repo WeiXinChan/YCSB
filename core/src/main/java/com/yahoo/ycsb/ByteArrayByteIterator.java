@@ -49,4 +49,9 @@ public class ByteArrayByteIterator extends ByteIterator {
 		return len - off;
 	}
 
+	@Override
+	public void resetOffset() {
+		off = 0;
+	}
+
 }

@@ -1,0 +1,83 @@
+# Copyright (c) 2010 Yahoo! Inc. All rights reserved.                                                                                                                             
+#                                                                                                                                                                                 
+# Licensed under the Apache License, Version 2.0 (the "License"); you                                                                                                             
+# may not use this file except in compliance with the License. You                                                                                                                
+# may obtain a copy of the License at                                                                                                                                             
+#                                                                                                                                                                                 
+# http://www.apache.org/licenses/LICENSE-2.0                                                                                                                                      
+#                                                                                                                                                                                 
+# Unless required by applicable law or agreed to in writing, software                                                                                                             
+# distributed under the License is distributed on an "AS IS" BASIS,                                                                                                               
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or                                                                                                                 
+# implied. See the License for the specific language governing                                                                                                                    
+# permissions and limitations under the License. See accompanying                                                                                                                 
+# LICENSE file.                                                                                                                                                                   
+
+
+# Yahoo! Cloud System Benchmark
+# Workload A: Update heavy workload
+#   Application example: Session store recording recent actions
+#                        
+#   Read/update ratio: 50/50
+#   Default data size: 1 KB records (10 fields, 100 bytes each, plus key)
+#   Request distribution: zipfian
+
+workload=com.oceanbase.obkv.ycsb.TYWorkload
+isObkv=true
+debug=true
+
+
+recordcount=1
+operationcount=1
+
+# The number of fields in a record
+fieldcount=10
+# The size of each field (in bytes)
+fieldlength=100
+
+insertproportion=1
+readproportion=0
+updateproportion=0
+readmodifywriteproportion=0
+scanproportion=0
+
+requestdistribution=uniform
+
+# threadcounts
+threadcount=1
+
+#### 以下连接方式二选一 ####
+hbase.oceanbase.odpMode=false
+#### ODP模式（hbase.oceanbase.odpMode=true）####
+hbase.oceanbase.odpAddr=
+hbase.oceanbase.odpPort=
+#### 直连模式（hbase.oceanbase.odpMode=false） ####
+##### url不需要带引号 #####
+hbase.oceanbase.paramURL=
+hbase.oceanbase.sysUserName=
+hbase.oceanbase.sysPassword=
+
+#### 租户用户账密 #####
+hbase.oceanbase.fullUserName=
+hbase.oceanbase.password=
+
+#### db、table、column family ####
+hbase.oceanbase.database=test
+hbase.oceanbase.table=test
+hbase.oceanbase.columnFamily=ts_family
+
+#### 连接池 ####
+server.connection.pool.size=50
+
+#### HBase/Lindorn 配置 ####
+hbase.zookeeper.quorum=
+hbase.zookeeper.property.clientPort=
+hbase.client.username=
+hbase.client.password=
+
+# HBase超时配置，防止卡死
+hbase.client.operation.timeout=10000
+hbase.client.scanner.timeout.period=10000
+hbase.rpc.timeout=10000
+hbase.client.retries.number=1
+hbase.client.pause=100

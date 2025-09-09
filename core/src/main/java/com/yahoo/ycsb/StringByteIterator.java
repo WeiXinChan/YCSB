@@ -105,4 +105,9 @@ public class StringByteIterator extends ByteIterator {
 			return str;
 		}
 	}
+	
+	@Override
+	public void resetOffset() {
+		off = 0;
+	}
 }

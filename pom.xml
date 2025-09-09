@@ -12,6 +12,8 @@
     <modules>
         <module>core</module>
         <module>obhbase</module>
+        <module>obkv-table</module>
+        <module>tikv</module>
     </modules>
 
     <dependencyManagement>
