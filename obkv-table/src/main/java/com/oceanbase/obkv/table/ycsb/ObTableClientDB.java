@@ -112,7 +112,7 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
             }
         }
 
-        insertType = props.getProperty(PROP_KEY_INSERT_TYPE, "insert").toLowerCase();
+        insertType = props.getProperty(PROP_KEY_INSERT_TYPE, "insertup").toLowerCase();
         updateType = props.getProperty(PROP_KEY_UPDATE_TYPE, "update").toLowerCase();
         batchPutType = props.getProperty(PROP_KEY_BATCH_PUT_TYPE, "put").toLowerCase();
 
