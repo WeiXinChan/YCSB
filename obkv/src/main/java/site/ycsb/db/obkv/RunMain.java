@@ -1,4 +1,4 @@
-package site.ycsb.db.obkv.table;
+package site.ycsb.db.obkv;
 
 import site.ycsb.Client;
 

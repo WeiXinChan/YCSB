@@ -1,4 +1,4 @@
-package site.ycsb.db.obkv.table.sql;
+package site.ycsb.db.obkv.common.sql;
 
 /**
  * <a href="https://github.com/oceanbase/oceanbase/blob/master/deps/oblib/src/common/object/ob_obj_type.h">Mysql模式具体类型参考这里</a>)
@@ -68,10 +68,6 @@ public enum DataType {
     this.value = value;
   }
 
-  public long getValue() {
-    return value;
-  }
-
   public static DataType fromValue(long value) {
     for (DataType type : values()) {
       if (type.getValue() == value) {
@@ -79,5 +75,9 @@ public enum DataType {
       }
     }
     throw new IllegalArgumentException("Unknown value: " + value);
+  }
+
+  public long getValue() {
+    return value;
   }
 }

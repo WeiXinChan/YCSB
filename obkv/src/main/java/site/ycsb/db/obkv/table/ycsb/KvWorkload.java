@@ -5,9 +5,9 @@ import org.apache.commons.lang3.StringUtils;
 import site.ycsb.*;
 import site.ycsb.db.obkv.common.Keys;
 import site.ycsb.db.obkv.common.OrderedComparator;
-import site.ycsb.db.obkv.table.sql.ColumnName;
-import site.ycsb.db.obkv.table.sql.Column;
-import site.ycsb.db.obkv.table.sql.DataType;
+import site.ycsb.db.obkv.common.sql.Column;
+import site.ycsb.db.obkv.common.sql.ColumnName;
+import site.ycsb.db.obkv.common.sql.DataType;
 import site.ycsb.generator.UniformLongGenerator;
 import site.ycsb.workloads.CoreWorkload;
 
@@ -20,7 +20,6 @@ import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
-
 import java.util.regex.Pattern;
 
 /**
@@ -29,21 +28,22 @@ import java.util.regex.Pattern;
  * @author mokang
  * @date 2025/09/09
  */
-public class KvWorkLoad extends CoreWorkload {
-  private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
-  protected static final Set<DataType> HANDLER_DATA_TYPE_SET = new HashSet<>();
-  protected static final Comparator<String> ORDERED_COMPARTOR = new OrderedComparator();
-  protected static final Map<String, Column> ALL_COLUMNS_MAP = new TreeMap<>(ORDERED_COMPARTOR);
-  protected static final Map<String, Column> ROW_KEY_COLUMNS_MAP = new TreeMap<>(ORDERED_COMPARTOR);
-  protected static final Map<String, Column> DATA_COLUMNS_MAP = new TreeMap<>(ORDERED_COMPARTOR);
-  protected static final Map<String, Column> SPECIAL_COLUMNS_MAP = new TreeMap<>(ORDERED_COMPARTOR);
-  protected static final String JDBC_FORMAT = "jdbc:mysql://%s:%s/%s?useSSL=false&characterEncoding=UTF-8";
-  protected static final String PARAMETERS_SQL_FORMAT = "SELECT VALUE FROM OCEANBASE.GV$OB_PARAMETERS WHERE NAME = ? LIMIT 1";
-  protected static final String COLUMN_SQL_FORMAT = "SELECT * FROM OCEANBASE.__ALL_COLUMN WHERE TABLE_ID = (SELECT TABLE_ID FROM OCEANBASE.__ALL_TABLE WHERE TABLE_NAME = ?) ORDER BY COLUMN_ID";
+public class KvWorkload extends CoreWorkload {
+  public static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+  public static final Set<DataType> HANDLER_DATA_TYPE_SET = new HashSet<>();
+  public static final Map<String, Column> ALL_COLUMNS_MAP = new TreeMap<>(new OrderedComparator());
+  public static final TreeMap<String, Column> ROW_KEY_COLUMNS_MAP = new TreeMap<>(new OrderedComparator());
+  public static final Map<String, Column> DATA_COLUMNS_MAP = new TreeMap<>(new OrderedComparator());
+  public static final Map<String, Column> SPECIAL_COLUMNS_MAP = new TreeMap<>(new OrderedComparator());
+  public static final String JDBC_FORMAT = "jdbc:mysql://%s:%s/%s?useSSL=false&characterEncoding=UTF-8";
+  public static final String PARAMETERS_SQL_FORMAT = "SELECT VALUE FROM OCEANBASE.GV$OB_PARAMETERS WHERE NAME = ? LIMIT 1";
+  public static final String COLUMN_SQL_FORMAT = "SELECT * FROM OCEANBASE.__ALL_COLUMN WHERE TABLE_ID = (SELECT TABLE_ID FROM OCEANBASE.__ALL_TABLE WHERE TABLE_NAME = ?) ORDER BY COLUMN_ID";
+  private static final Set<Column> ROW_KEY_COLUMNS_SET = new TreeSet<>(Comparator.comparing(Column::getRowKeyPosition));
   protected long columnGenLengthLimit;
   protected long jsonColumnGenLengthLimit;
   protected long jsonValueLength;
   protected long jsonKeyCount;
+  protected boolean useNumKey;
 
   @Override
   public void init(Properties properties) throws WorkloadException {
@@ -221,9 +221,13 @@ public class KvWorkLoad extends CoreWorkload {
             Field field = entry.getValue();
             field.set(column, resultSet.getObject(key));
           }
+          //hidden primary key
+          if (column.getIsHidden() == 1) {
+            continue;
+          }
           ALL_COLUMNS_MAP.put(column.getColumnName(), column);
           if (column.getRowKeyPosition() > 0) {
-            ROW_KEY_COLUMNS_MAP.put(column.getColumnName(), column);
+            ROW_KEY_COLUMNS_SET.add(column);
           } else {
             //虚拟生成列
             if ((column.getColumnFlags() & (1L)) == 1) {
@@ -248,6 +252,11 @@ public class KvWorkLoad extends CoreWorkload {
     if (ALL_COLUMNS_MAP.isEmpty()) {
       throw new WorkloadException("Please make sure the table " + tableName + " exists");
     }
+
+    //确保RowKey的顺序
+    for (Column c : ROW_KEY_COLUMNS_SET) {
+      ROW_KEY_COLUMNS_MAP.put(c.getColumnName(), c);
+    }
     System.err.println("allColumnsMap is " + ALL_COLUMNS_MAP.keySet());
     System.err.println("rowKeyColumnMap is " + ROW_KEY_COLUMNS_MAP.keySet());
     System.err.println("dataColumnMap is " + DATA_COLUMNS_MAP.keySet());
@@ -262,6 +271,7 @@ public class KvWorkLoad extends CoreWorkload {
     jsonColumnGenLengthLimit = Long.parseLong(properties.getProperty(Keys.OBKV_CULUMN_JSON_LENGTH_GEN_LIMIT.getKey(), Keys.OBKV_CULUMN_LENGTH_GEN_LIMIT.getDefaultValue()));
     jsonValueLength = Long.parseLong(properties.getProperty(Keys.OBKV_JSON_VALUE_LENGTH.getKey(), Keys.OBKV_JSON_VALUE_LENGTH.getDefaultValue()));
     jsonKeyCount = jsonColumnGenLengthLimit / jsonValueLength + 1;
+    useNumKey = Boolean.parseBoolean(properties.getProperty(Keys.OBKV_WORKLOAD_NUM_KEY.getKey(), Keys.OBKV_WORKLOAD_NUM_KEY.getDefaultValue()));
   }
 
   private Connection getConnection(Properties properties) throws Exception {
@@ -290,7 +300,7 @@ public class KvWorkLoad extends CoreWorkload {
   }
 
   private String buildJsonMap(long keys, long length) {
-    String format = "KEY_%04d";
+    String format = "KEY_%08d";
     Map<String, Object> result = new HashMap<>();
     for (long i = 0; i < keys; i++) {
       String key = String.format(format, i);
@@ -301,5 +311,13 @@ public class KvWorkLoad extends CoreWorkload {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+  }
+
+  @Override
+  public String buildKeyName(long keynum) {
+    if (useNumKey) {
+      return String.valueOf(keynum);
+    }
+    return super.buildKeyName(keynum);
   }
 }

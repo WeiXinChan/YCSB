@@ -1,4 +1,4 @@
-package site.ycsb.db.obkv.table.sql;
+package site.ycsb.db.obkv.common.sql;
 
 public class Column {
   @ColumnName("column_id")
@@ -21,6 +21,8 @@ public class Column {
   private Long nullable;
   @ColumnName("cur_default_value_v2")
   private byte[] curDefaultValueV2;
+  @ColumnName("is_hidden")
+  private Long isHidden;
 
   public Long getColumnId() {
     return columnId;
@@ -100,5 +102,13 @@ public class Column {
 
   public void setCurDefaultValueV2(byte[] curDefaultValueV2) {
     this.curDefaultValueV2 = curDefaultValueV2;
+  }
+
+  public Long getIsHidden() {
+    return isHidden;
+  }
+
+  public void setIsHidden(Long isHidden) {
+    this.isHidden = isHidden;
   }
 }

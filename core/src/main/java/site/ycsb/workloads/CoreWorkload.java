@@ -402,7 +402,7 @@ public class CoreWorkload extends Workload {
 
   private Measurements measurements = Measurements.getMeasurements();
 
-  public String buildKeyName(long keynum) {
+  public static String buildKeyName(long keynum, int zeropadding, boolean orderedinserts) {
     if (!orderedinserts) {
       keynum = Utils.hash(keynum);
     }
@@ -413,6 +413,10 @@ public class CoreWorkload extends Workload {
       prekey += '0';
     }
     return prekey + value;
+  }
+
+  public String buildKeyName(long keyNum) {
+    return CoreWorkload.buildKeyName(keyNum, zeropadding, orderedinserts);
   }
 
   protected static NumberGenerator getFieldLengthGenerator(Properties p) throws WorkloadException {
@@ -969,6 +973,7 @@ public class CoreWorkload extends Workload {
         // update a random field
         values = buildSingleValue(keyname);
       }
+      valuesMap.put(keyname, values);
     }
     db.batch(table, valuesMap);
   }

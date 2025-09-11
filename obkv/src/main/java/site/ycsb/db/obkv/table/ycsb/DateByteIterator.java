@@ -3,10 +3,9 @@ package site.ycsb.db.obkv.table.ycsb;
 import site.ycsb.ByteIterator;
 import site.ycsb.NumericByteIterator;
 
+import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 
 /**
  * A byte iterator that handles encoding and decoding date/time values.
@@ -58,7 +57,7 @@ public class DateByteIterator extends ByteIterator {
     if (isTimeStamp) {
       return new Timestamp(seconds * 1000L);
     } else {
-      return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds), ZoneId.systemDefault());
+      return Date.from(Instant.ofEpochSecond(seconds));
     }
   }
 }

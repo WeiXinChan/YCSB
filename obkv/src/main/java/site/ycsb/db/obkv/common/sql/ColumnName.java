@@ -1,4 +1,4 @@
-package site.ycsb.db.obkv.table.sql;
+package site.ycsb.db.obkv.common.sql;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
