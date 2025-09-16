@@ -1,6 +1,6 @@
 package com.oceanbase.obkv;
 
-import com.yahoo.ycsb.Client;
+import site.ycsb.Client;
 
 import java.lang.reflect.Method;
 import java.nio.file.Files;

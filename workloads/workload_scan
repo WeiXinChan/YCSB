@@ -22,10 +22,10 @@
 #   Default data size: 1 KB records (10 fields, 100 bytes each, plus key)
 #   Request distribution: zipfian
 
-workload=com.yahoo.ycsb.workloads.CoreWorkload
+workload=site.ycsb.workloads.CoreWorkload
 
-recordcount=30000000
-operationcount=30000000
+recordcount=
+operationcount=
 
 # The number of fields in a record
 fieldcount=1
@@ -47,7 +47,7 @@ requestdistribution=uniform
 threadcount=10
 
 #### 以下连接方式二选一 ####
-hbase.oceanbase.odpMode=false
+hbase.oceanbase.odpMode=
 #### ODP模式（hbase.oceanbase.odpMode=true）####
 hbase.oceanbase.odpAddr=
 hbase.oceanbase.odpPort=

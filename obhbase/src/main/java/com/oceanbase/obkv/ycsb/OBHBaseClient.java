@@ -18,17 +18,16 @@
 package com.oceanbase.obkv.ycsb;
 import com.alipay.oceanbase.hbase.OHTable;
 import com.alipay.oceanbase.rpc.property.Property;
-import com.yahoo.ycsb.*;
+import site.ycsb.*;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.util.Bytes;
 import java.io.IOException;
 import java.util.*;
 import static com.alipay.oceanbase.hbase.constants.OHConstants.*;
-import static com.yahoo.ycsb.Status.*;
+import static site.ycsb.Status.*;
 import static org.apache.commons.lang.StringUtils.isNotBlank;
 
 public class OBHBaseClient extends DB {
@@ -152,7 +151,7 @@ public class OBHBaseClient extends DB {
      */
     @Override
     public Status read(String table, String key, Set<String> fields,
-                       HashMap<String, ByteIterator> result) {
+                       Map<String, ByteIterator> result) {
         Result r = null;
         try {
             if (debug) {
@@ -267,7 +266,7 @@ public class OBHBaseClient extends DB {
      * @return ans
      */
     @Override
-    public Status update(String table, String key, HashMap<String, ByteIterator> values) {
+    public Status update(String table, String key, Map<String, ByteIterator> values) {
         if (debug) {
             System.out.println("Setting up put for key: " + key);// NOPMD
         }
@@ -294,7 +293,7 @@ public class OBHBaseClient extends DB {
     }
 
     @Override
-    public Status insert(String table, String key, HashMap<String, ByteIterator> values) {
+    public Status insert(String table, String key, Map<String, ByteIterator> values) {
         return update(table, key, values);
     }
 

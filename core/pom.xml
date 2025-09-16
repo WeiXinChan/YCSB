@@ -22,7 +22,7 @@ LICENSE file.
   <groupId>com.yahoo.ycsb</groupId>
   <artifactId>core</artifactId>
   <name>Core YCSB</name>
-  <version>0.12.0</version>
+  <version>0.18.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <properties>
@@ -55,7 +55,7 @@ LICENSE file.
     <dependency>
       <groupId>org.hdrhistogram</groupId>
       <artifactId>HdrHistogram</artifactId>
-      <version>2.1.4</version>
+      <version>2.1.12</version>
     </dependency>
   </dependencies>
   <build>
@@ -71,8 +71,8 @@ LICENSE file.
             <artifactId>maven-compiler-plugin</artifactId>
             <version>3.3</version>
             <configuration>
-              <source>1.7</source>
-              <target>1.7</target>
+              <source>8</source>
+              <target>8</target>
             </configuration>
           </plugin>
           <plugin>
