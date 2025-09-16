@@ -64,6 +64,9 @@ vim workloads/workload_scan
 | `operationcount` | 操作总数 | - |
 | `recordcount` | 记录总数 | - |
 | `requestdistribution` | 请求分布模式 | uniform |
+| `obkv.insertType` | insert操作使用的obkv接口| insertup |
+| `obkv.updateType` | update操作使用的obkv接口| update |
+| `obkv.batchPutType`| batch_put操作使用的obkv接口 | put |
 
 注意：没有指定insertstart和insertcount的情况下
 - load测试载入数据的起点是从0开始
@@ -90,6 +93,42 @@ obkv.password=
 ```
 
 ### 5. 快速运行测试
+#### 5.0. 预建表
+**注意：** 如果需要测试scan操作，需要预建range分区表，key分区表的scan操作会进行全表扫描
+```
+# 预建range分区表
+sh create_partitioned_table.sh 30000000 20 12
+```
+`create_partitioned_table.sh`会生成测试需要的建表语句，需要使用sql客户端进行建表：
+```
+CREATE TABLE usertable (
+    ycsb_key varbinary(1024) NOT NULL,
+    field0 varbinary(1024) NOT NULL,
+    PRIMARY KEY (ycsb_key)
+)
+PARTITION BY RANGE COLUMNS(ycsb_key) (
+    PARTITION p0 VALUES LESS THAN ('000000050000'),
+    PARTITION p1 VALUES LESS THAN ('000000100000'),
+    PARTITION p2 VALUES LESS THAN ('000000150000'),
+    PARTITION p3 VALUES LESS THAN ('000000200000'),
+    PARTITION p4 VALUES LESS THAN ('000000250000'),
+    PARTITION p5 VALUES LESS THAN ('000000300000'),
+    PARTITION p6 VALUES LESS THAN ('000000350000'),
+    PARTITION p7 VALUES LESS THAN ('000000400000'),
+    PARTITION p8 VALUES LESS THAN ('000000450000'),
+    PARTITION p9 VALUES LESS THAN ('000000500000'),
+    PARTITION p10 VALUES LESS THAN ('000000550000'),
+    PARTITION p11 VALUES LESS THAN ('000000600000'),
+    PARTITION p12 VALUES LESS THAN ('000000650000'),
+    PARTITION p13 VALUES LESS THAN ('000000700000'),
+    PARTITION p14 VALUES LESS THAN ('000000750000'),
+    PARTITION p15 VALUES LESS THAN ('000000800000'),
+    PARTITION p16 VALUES LESS THAN ('000000850000'),
+    PARTITION p17 VALUES LESS THAN ('000000900000'),
+    PARTITION p18 VALUES LESS THAN ('000000950000'),
+    PARTITION p19 VALUES LESS THAN (MAXVALUE)
+);
+```
 #### 5.1. 进行scan测试
 ```bash
 # 先导入数据，这一步会交互式地让用户选择load哪种测试的数据（read/scan/batchread），会分别对应取读对应的workload文件
@@ -99,26 +138,55 @@ obkv.password=
 ./run_fast_test.sh load workloads/my_workload
 
 # 确定每个分区的key数量是否均衡
-select count(1) from test$family partition(p0);
-select count(1) from test$family partition(p1);
-select count(1) from test$family partition(p2);
+select count(1) from usertable partition(p0);
+select count(1) from usertable partition(p1);
+select count(1) from usertable partition(p2);
+...
 
 # 扫描数据
 ./run_fast_test.sh scan
+
+# 超时参数调优，在workload文件里指定设置
+rpc.operation.timeout=10000 # 服务端执行的超时时间
+rpc.execute.timeout=15000   # 客户端等待请求返回的超时时间
 ```
+
 #### 5.2. 进行put测试
 ```bash
 # 运行put测试
 ./run_fast_test.sh put
 ```
+**注意**：默认使用obkv的insertup接口，如果需要使用其他接口，在workload文件上通过设置`obkv.insertType=`，例如：
+```bash
+# 使用insert接口，插入数据重复会报错
+obkv.insertType=insert
+# 使用put接口，覆盖写，插入数据重复会覆盖（需要在server上将binlog_row_image变量设置为minimal，不支持全列日志）
+mysql> set global binlog_row_image='MINIMAL';
+# workload文件里指定
+obkv.insertType=put
+# 默认：使用insertup，插入数据重复会转成update操作
+obkv.insertType=insertup
+```
 #### 5.3. 进行batch_put测试
 ```bash
+# 测试batchput时，默认使用的是put接口（即：obkv.batchPutType=put)，binlog只支持minimal镜像，此时需要将server端的binlog_row_image变量设置为minimal
+# 登录业务租户，执行如下命令
+mysql> set global binlog_row_image='MINIMAL';
 # 运行batch_put测试
 ./run_fast_test.sh batch_put
 ```
+**注意**：默认使用obkv的put接口，如果需要使用其他接口，在workload文件上通过设置`obkv.batchPutType=`，例如：
+```bash
+# 默认：使用put接口，覆盖写，插入数据重复会覆盖（需要在server上将binlog_row_image变量设置为minimal，不支持全列日志）
+obkv.insertType=put
+# 使用insert接口，插入数据重复会报错
+obkv.insertType=insert
+# 使用insertup，插入数据重复会转成update操作
+obkv.insertType=insertup
+```
 #### 5.4. 进行read测试
 ```bash
-# 同上，需要先load数据
+# 同scan，需要先load数据
 ./run_fast_test.sh load
 
 # 运行
@@ -126,7 +194,7 @@ select count(1) from test$family partition(p2);
 ```
 #### 5.5. 进行batch_read测试
 ```bash
-# 同上，需要先load数据
+# 同scan，需要先load数据
 ./run_fast_test.sh load
 
 # 运行
@@ -140,11 +208,4 @@ select count(1) from test$family partition(p2);
 ./run_fast_test.sh load /path/to/custom/workload
 # 2. 运行这个测试
 ./run_fast_test.sh worload /path/to/custom/workload
-```
-
-### 6. 预建表
-**注意：** 如果需要测试scan操作，需要预建range分区表，key分区表的scan操作会进行全表扫描
-```
-# 预建range分区表
-sh create_partitioned_table.sh 30000000 20 12
 ```

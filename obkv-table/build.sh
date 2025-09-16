@@ -68,7 +68,50 @@ if [ ! -f "pom.xml" ]; then
     exit 1
 fi
 
+# 获取项目根目录
+PROJECT_ROOT=$(pwd)
+CORE_DIR="../core"
+
+# 检查core模块是否存在
+if [ ! -d "$CORE_DIR" ]; then
+    echo "错误：找不到core模块目录：$CORE_DIR"
+    echo "请确保在正确的项目结构下运行此脚本"
+    exit 1
+fi
+
+# 构建core模块
+echo "=========================================="
+echo "开始构建core模块..."
+echo "=========================================="
+cd "$CORE_DIR"
+
+# 检查core模块的pom.xml
+if [ ! -f "pom.xml" ]; then
+    echo "错误：core模块不包含pom.xml文件"
+    exit 1
+fi
+
+# 构建core模块
+echo "构建core模块..."
+mvn clean install -DskipTests -Dcheckstyle.skip=true -Dmaven.test.skip=true
+
+# 检查core模块构建是否成功
+CORE_JAR="target/core-0.12.0.jar"
+if [ ! -f "$CORE_JAR" ]; then
+    echo "错误：core模块构建失败，未找到jar包：$CORE_JAR"
+    exit 1
+fi
+
+echo "core模块构建成功！"
+echo "core jar包位置: $CORE_JAR"
+
+# 回到当前模块目录
+cd "$PROJECT_ROOT"
+
 # 清理之前的构建
+echo "=========================================="
+echo "开始构建obkv-table模块..."
+echo "=========================================="
 echo "清理之前的构建..."
 mvn clean
 
@@ -124,4 +167,4 @@ else
     exit 1
 fi
 
-echo "构建完成！" 
+echo "构建完成！"
