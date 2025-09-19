@@ -17,8 +17,6 @@ public class RunMain {
         try {
             List<String> list = new ArrayList<>();
             list.add("-s");
-            list.add("-db");
-            list.add("com.oceanbase.obkv.ycsb.OBHBaseClient");
             list.addAll(Arrays.asList(args));
             String[] arr = list.toArray(new String[0]);
             Method method = Client.class.getMethod("main", String[].class);

@@ -370,6 +370,12 @@ public class CoreWorkload extends Workload {
   public static final String BATCH_READ_SIZE_PER_OP = "batchread.size.per.op";
   public static final String BATCH_READ_SIZE_PER_OP_DEFAULT = "10";
 
+  public static final String IS_SAME_PART_IN_BATCH = "batchput.issamepart.per.op";
+  public static final String IS_SAME_PART_IN_BATCH_DEFAULT = "false";
+
+  public static final String USE_BATCH_LOAD = "load.use.batchput";
+  public static final String USE_BATCH_LOAD_DEFAULT = "true";
+
   NumberGenerator keysequence;
 
   DiscreteGenerator operationchooser;
@@ -392,6 +398,8 @@ public class CoreWorkload extends Workload {
   int batchPutSize;
   int batchReadSize;
   int operationcount;
+  boolean isSamePartInBatch;
+  boolean useBatchLoad;
 
   private Measurements _measurements = Measurements.getMeasurements();
 
@@ -438,7 +446,9 @@ public class CoreWorkload extends Workload {
       fieldnames.add("field" + i);
     }
     fieldlengthgenerator = CoreWorkload.getFieldLengthGenerator(p);
-    
+
+    isSamePartInBatch = Boolean.parseBoolean(p.getProperty(IS_SAME_PART_IN_BATCH, IS_SAME_PART_IN_BATCH_DEFAULT));
+    useBatchLoad = Boolean.parseBoolean(p.getProperty(USE_BATCH_LOAD, USE_BATCH_LOAD_DEFAULT));
     recordcount =
         Integer.parseInt(p.getProperty(Client.RECORD_COUNT_PROPERTY, Client.DEFAULT_RECORD_COUNT));
     if (recordcount == 0) {
@@ -634,6 +644,9 @@ public class CoreWorkload extends Workload {
    */
   @Override
   public boolean doInsert(DB db, Object threadstate) {
+    if (useBatchLoad) {
+      return doBatchPut(db, threadstate);
+    }
     int keynum = keysequence.nextValue().intValue();
     String dbkey = buildKeyName(keynum);
     HashMap<String, ByteIterator> values = buildValues(dbkey);
@@ -668,6 +681,51 @@ public class CoreWorkload extends Workload {
 
     return null != status && status.isOk();
   }
+
+  public boolean doBatchPut(DB db, Object threadstate) {
+    Map<String, Map<String, ByteIterator>> values = new HashMap<>();
+    if (isSamePartInBatch) {
+      int keynum = keysequence.nextValue().intValue();
+      String dbkey = buildKeyName(keynum);
+      values.put(dbkey, buildValues(dbkey));
+    } else {
+      for (int i = 0; i < batchPutSize; i++) {
+        int keynum = keysequence.nextValue().intValue();
+        String dbkey = buildKeyName(keynum);
+        values.put(dbkey, buildValues(dbkey));
+      }
+    }
+    Status status;
+    int numOfRetries = 0;
+    do {
+      status = db.batchPut(table, values);
+      if (null != status && status.isOk()) {
+        break;
+      }
+      // Retry if configured. Without retrying, the load process will fail
+      // even if one single insertion fails. User can optionally configure
+      // an insertion retry limit (default is 0) to enable retry.
+      if (++numOfRetries <= insertionRetryLimit) {
+        System.err.println("Retrying insertion, retry count: " + numOfRetries);
+        try {
+          // Sleep for a random number between [0.8, 1.2)*insertionRetryInterval.
+          int sleepTime = (int) (1000 * insertionRetryInterval * (0.8 + 0.4 * Math.random()));
+          Thread.sleep(sleepTime);
+        } catch (InterruptedException e) {
+          break;
+        }
+
+      } else {
+        System.err.println("Error inserting, not retrying any more. number of attempts: " + numOfRetries +
+            "Insertion Retry Limit: " + insertionRetryLimit);
+        break;
+
+      }
+    } while (true);
+
+    return null != status && status.isOk();
+  }
+
 
   /**
    * Do one transaction operation. Because it will be called concurrently from multiple client
@@ -935,7 +993,11 @@ public class CoreWorkload extends Workload {
 
   public void doTransactionBatchPut(DB db) {
     Map<String,Map<String,ByteIterator>> valuesMap = new HashMap<>();
-    for (int i = 0; i < batchPutSize; i++) {
+    int batchKeyCount = batchPutSize;
+    if (isSamePartInBatch) {
+      batchKeyCount = 1;
+    }
+    for (int i = 0; i < batchKeyCount; i++) {
       // choose the next key
       int keyNum = transactioninsertkeysequence.nextValue();
       String dbKey = buildKeyName(keyNum);
