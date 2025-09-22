@@ -42,7 +42,7 @@ public class OBHBaseClient4RKPart extends DB {
     Properties props = getProperties();
     Configuration conf = new Configuration();
     // init ObTable
-    initObTable(props, conf);
+    initConnectConfig(props, conf);
     initRunTimeParams(props);
     // Some other useful property
     for (Property property : Property.values()) {
@@ -51,13 +51,19 @@ public class OBHBaseClient4RKPart extends DB {
         conf.set(property.getKey(), value);
       }
     }
+    // init ObTable
+    try {
+      ohTable = new OHTable(conf, table);
+    } catch (Exception e) {
+      throw new DBException(e);
+    }
     if ((getProperties().getProperty("debug") != null)
         && (getProperties().getProperty("debug").compareTo("true") == 0)) {
       debug = true;
     }
   }
 
-  private void initObTable(Properties props, Configuration conf) throws DBException
+  private void initConnectConfig(Properties props, Configuration conf) throws DBException
   {
     columnFamily = props.getProperty(COLUMN_FAMILY);
     columnFamilyBytes = Bytes.toBytes(columnFamily);
@@ -109,12 +115,6 @@ public class OBHBaseClient4RKPart extends DB {
       conf.set(HBASE_OCEANBASE_FULL_USER_NAME,
           props.getProperty(HBASE_OCEANBASE_FULL_USER_NAME));
       conf.set(HBASE_OCEANBASE_PASSWORD, props.getProperty(HBASE_OCEANBASE_PASSWORD));
-    }
-
-    try {
-      ohTable = new OHTable(conf, table);
-    } catch (Exception e) {
-      throw new DBException(e);
     }
   }
 
