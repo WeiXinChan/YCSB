@@ -72,9 +72,9 @@ OUTPUT_FILE="create_range_key_partitioned_table.txt"
 echo "" > $OUTPUT_FILE
 # print函数：同时输出到控制台和文件
 print() {
-    echo "$1"
+    echo -e "$1"
     if [ -n "$OUTPUT_FILE" ]; then
-        echo "$1" >> "$OUTPUT_FILE"
+        echo -e "$1" >> "$OUTPUT_FILE"
     fi
 }
 
