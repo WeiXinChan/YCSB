@@ -151,16 +151,15 @@ fieldlength=500
 load.use.batchput=true
 batchput.size.per.op=2
 batchput.issamepart.per.op=true
-range.uid.count=14000
-total.uid.count=100000
+range.rows.count=70000000
+total.uid.count=10000
 # scan
 scan.rows=200
 table.scan.one.part=false
 ```
 - 生成3亿个batch操作，每个batch2个操作，生成6亿条数据，每条5列，每列500B，单条2.5KB，总共约1.3T数据
 - 假设数据均匀分布在每个分区上：
-  - 每个一级range分区会有1.4w个uid，总共会约有10w个uid分布在7个range一级分区
-    - 这样相当于每个uid在一个range分区（代表一天）里大约会有6000条记录；
+  - 每个一级range分区会有7000W条数据，uid总数为1w，每个range分区上同一个uid会7000个版本的数据 （即：7000W / 1W = 7000）
 
 #### 2.3 客户端参数
 **查询参数**

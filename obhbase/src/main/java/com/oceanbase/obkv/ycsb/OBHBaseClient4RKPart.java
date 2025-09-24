@@ -29,7 +29,7 @@ public class OBHBaseClient4RKPart extends DB {
 
   private boolean scanOnePart;
   private long rangePartitionMills;
-  private long rangeUidCount;
+  private long rangeRowsCount;
   private long totalUidCount;
   private long CURRENT_MILLS;
   private long keyStart;
@@ -126,7 +126,7 @@ public class OBHBaseClient4RKPart extends DB {
     keyStart = Long.parseLong(props.getProperty("key.start", props.getProperty("insertstart", "0")));
 
     //row key的个数
-    rangeUidCount = Long.parseLong(props.getProperty("range.uid.count", String.valueOf(Integer.MAX_VALUE)));
+    rangeRowsCount = Long.parseLong(props.getProperty("range.rows.count", String.valueOf(Integer.MAX_VALUE)));
     totalUidCount = Integer.parseInt(props.getProperty("total.uid.count", String.valueOf(20000)));
     // range 分区间隔
     rangePartitionMills = Long.parseLong(props.getProperty("table.range.mills", String.valueOf(3600 * 1000)));
@@ -142,7 +142,7 @@ public class OBHBaseClient4RKPart extends DB {
     System.out.println("  \"currentMills\": " + CURRENT_MILLS + ",");
     System.out.println("  \"scanRows\": " + scanRows + ",");
     System.out.println("  \"keyStart\": " + keyStart + ",");
-    System.out.println("  \"rangeUidCount\": " + rangeUidCount + ",");
+    System.out.println("  \"rangeRowsCount\": " + rangeRowsCount + ",");
     System.out.println("  \"totalUidCount\": " + totalUidCount + ",");
     System.out.println("  \"rangePartitionMills\": " + rangePartitionMills + ",");
     System.out.println("  \"scanOnePart\": " + scanOnePart);
@@ -150,7 +150,7 @@ public class OBHBaseClient4RKPart extends DB {
   }
 
   private long getKeyTimestamp(long num) {
-    int mod = (int) ((num - keyStart) / rangeUidCount);
+    int mod = (int) ((num - keyStart) / rangeRowsCount);
     return CURRENT_MILLS + mod * rangePartitionMills + (num - keyStart) % rangePartitionMills;
   }
 

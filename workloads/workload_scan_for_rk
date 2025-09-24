@@ -81,8 +81,8 @@ hbase.oceanbase.columnFamily=family
 current.mills=1758268406000
 # range分区的时间间隔（ms）
 table.range.mills=3600000
-# 每个range分区uid的数量
-range.uid.count=10
+# 每个range分区容纳的数据量
+range.rows.count=10
 # uid的总数量
 total.uid.count=5
 
