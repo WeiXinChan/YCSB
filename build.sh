@@ -1,11 +1,87 @@
 #!/bin/bash
 
-# YCSB OBHBase 编译打包脚本
+# YCSB OBHBase 编译打包脚本（增强版）
+# 支持从 GitHub 拉取最新分支进行编译
 set -e  # 遇到错误时退出
 
+# 默认配置
+USE_GITHUB=false
+TABLE_URL="https://github.com/oceanbase/obkv-table-client-java.git"
+TABLE_BRANCH="master"
+HBASE_URL="https://github.com/oceanbase/obkv-hbase-client-java.git"
+HBASE_BRANCH="hbase_2.0"
+HBASE_USE_LOCAL_TABLE="true"
+
+# 路径配置
+BUILD_DIR="build"
+PACKAGE_DIR="$(pwd)"
+BUILD_PATH="$PACKAGE_DIR/$BUILD_DIR"
+TEMP_PATH="$BUILD_PATH/temp"
+BUILD_COMMITS_FILE="$BUILD_PATH/.BUILD_COMMITS"
+
+# 显示帮助信息
+show_help() {
+    echo "用法: $0 [选项]"
+    echo ""
+    echo "选项:"
+    echo "  clean                    清理构建产物和build目录"
+    echo "  --use-github            从GitHub拉取最新分支进行编译"
+    echo "  --table-branch BRANCH   指定table client分支 (默认: master)"
+    echo "  --hbase-branch BRANCH   指定hbase client分支 (默认: hbase_2.0)"
+    echo "  --no-local-table        不使用本地table client版本"
+    echo "  -h, --help              显示此帮助信息"
+    echo ""
+    echo "示例:"
+    echo "  $0                      # 标准编译"
+    echo "  $0 clean                # 清理构建产物"
+    echo "  $0 --use-github         # 从GitHub拉取最新代码编译"
+    echo "  $0 --use-github --table-branch dev --hbase-branch feature"
+    echo ""
+    exit 0
+}
+
+# 解析命令行参数
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        clean)
+            CLEAN_MODE=true
+            shift
+            ;;
+        --use-github)
+            USE_GITHUB=true
+            shift
+            ;;
+        --table-branch)
+            TABLE_BRANCH="$2"
+            shift 2
+            ;;
+        --hbase-branch)
+            HBASE_BRANCH="$2"
+            shift 2
+            ;;
+        --no-local-table)
+            HBASE_USE_LOCAL_TABLE="false"
+            shift
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            echo "未知选项: $1"
+            echo "使用 $0 --help 查看帮助信息"
+            exit 1
+            ;;
+    esac
+done
+
 echo "=========================================="
-echo "开始编译打包 YCSB OBHBase..."
-echo "=========================================="
+
+# 检查Git是否安装（GitHub模式需要）
+if [ "$USE_GITHUB" = "true" ] && ! command -v git &> /dev/null; then
+    echo "错误：Git未安装或不在PATH中"
+    echo "GitHub模式需要Git支持"
+    exit 1
+fi
 
 # 检查Java是否安装
 if ! command -v java &> /dev/null; then
@@ -37,8 +113,21 @@ if [ "$MAVEN_MAJOR_VERSION" != "3" ]; then
     exit 1
 fi
 
-# 检查命令行参数
-if [ "$1" = "clean" ]; then
+echo "=========================================="
+echo "YCSB OBHBase 编译打包脚本"
+if [ "$CLEAN_MODE" = "true" ]; then
+    echo "模式: 清理模式"
+elif [ "$USE_GITHUB" = "true" ]; then
+    echo "模式: GitHub 拉取编译"
+    echo "Table Client 分支: $TABLE_BRANCH"
+    echo "HBase Client 分支: $HBASE_BRANCH"
+    echo "使用本地Table Client: $HBASE_USE_LOCAL_TABLE"
+else
+    echo "模式: 标准编译"
+fi
+
+# 处理清理模式
+if [ "$CLEAN_MODE" = "true" ]; then
     echo "=========================================="
     echo "执行清理操作..."
     echo "=========================================="
@@ -48,10 +137,9 @@ if [ "$1" = "clean" ]; then
     mvn clean
     
     # 清理build目录
-    BUILD_DIR="build"
-    if [ -d "$BUILD_DIR" ]; then
+    if [ -d "$BUILD_PATH" ]; then
         echo "清理build目录..."
-        rm -rf "$BUILD_DIR"
+        rm -rf "$BUILD_PATH"
         echo "build目录已清理"
     else
         echo "build目录不存在，无需清理"
@@ -68,13 +156,134 @@ if [ ! -f "pom.xml" ]; then
     exit 1
 fi
 
-# 清理之前的构建
-echo "清理之前的构建..."
-mvn clean
+# GitHub模式：编译依赖客户端
+if [ "$USE_GITHUB" = "true" ]; then
+    echo "=========================================="
+    echo "GitHub模式：开始编译依赖客户端..."
+    echo "=========================================="
+    
+    # 创建build目录
+    mkdir -p "$BUILD_PATH"
+    
+    # 初始化构建信息文件
+    if [ -f "$BUILD_COMMITS_FILE" ]; then   
+        rm -rf "$BUILD_COMMITS_FILE"
+    fi
+    
+    # 编译Table Client
+    compile_table_client() {
+        echo "编译 Table Client..."
+        cd "$TEMP_PATH"
+        count=100
+        set +e
+        while [ $count -gt 1 ]; do
+            count=$(( count - 1 ))
+            rm -rf obkv-table-client-java
+            echo "尝试克隆 Table Client 仓库 (剩余尝试次数: $count)..."
+            git clone --depth 1 -b $TABLE_BRANCH $TABLE_URL
+            if [ $? -eq 0 ]; then
+                count=0
+            fi
+        done
+        set -e
+        
+        if [ ! -d "obkv-table-client-java" ]; then
+            echo "错误：无法克隆 Table Client 仓库"
+            exit 1
+        fi
+        
+        cd obkv-table-client-java
+        TABLE_CLIENT_VERSION=$(grep -o '<version>.*</version>' pom.xml | head -n1 | sed 's/<version>\(.*\)<\/version>/\1/g')
+        export TABLE_CLIENT_VERSION
+        TABLE_COMMIT=$(git rev-parse HEAD)
+        echo "Table Client 版本: $TABLE_CLIENT_VERSION, 提交: $TABLE_COMMIT"
+        
+        {
+            echo ""
+            echo "[TABLE CLIENT]"
+            echo "REVISION: $TABLE_COMMIT"
+            echo "BUILD_BRANCH: $TABLE_BRANCH"
+            echo "BUILD_VERSION: $TABLE_CLIENT_VERSION"
+            echo "BUILD_URL: $TABLE_URL"
+        } >> "$BUILD_COMMITS_FILE"
+        
+        echo "开始编译 Table Client..."
+        mvn clean package install -Dmaven.test.skip=true -Dgpg.skip=true -Dcheckstyle.skip=true
+        echo "Table Client 编译完成"
+    }
+    
+    # 编译HBase Client
+    compile_hbase_client() {
+        echo "编译 HBase Client..."
+        cd "$TEMP_PATH"
+        count=100
+        set +e
+        while [ $count -gt 1 ]; do
+            count=$(( count - 1 ))
+            rm -rf obkv-hbase-client-java
+            echo "尝试克隆 HBase Client 仓库 (剩余尝试次数: $count)..."
+            git clone --depth 1 -b $HBASE_BRANCH $HBASE_URL
+            if [ $? -eq 0 ]; then
+                count=0
+            fi
+        done
+        set -e
+        
+        if [ ! -d "obkv-hbase-client-java" ]; then
+            echo "错误：无法克隆 HBase Client 仓库"
+            exit 1
+        fi
+        
+        cd obkv-hbase-client-java
+        HBASE_CLIENT_VERSION=$(grep -o '<version>.*</version>' pom.xml | head -n1 | sed 's/<version>\(.*\)<\/version>/\1/g')
+        HBASE_COMMIT=$(git rev-parse HEAD)
+        echo "HBase Client 版本: $HBASE_CLIENT_VERSION, 提交: $HBASE_COMMIT"
+        
+        {
+            echo ""
+            echo "[HBASE CLIENT]"
+            echo "REVISION: $HBASE_COMMIT"
+            echo "BUILD_BRANCH: $HBASE_BRANCH"
+            echo "BUILD_VERSION: $HBASE_CLIENT_VERSION"
+            echo "BUILD_URL: $HBASE_URL"
+        } >> "$BUILD_COMMITS_FILE"
+        
+        echo "开始编译 HBase Client..."
+        if [ "$HBASE_USE_LOCAL_TABLE" = "true" ]; then
+            mvn clean package install -Dmaven.test.skip=true -Dgpg.skip=true -Dcheckstyle.skip=true -Dtable.client.version="$TABLE_CLIENT_VERSION"
+        else
+            mvn clean package install -Dmaven.test.skip=true -Dgpg.skip=true -Dcheckstyle.skip=true
+        fi
+        echo "HBase Client 编译完成"
+    }
+    
+    # 创建临时目录并编译依赖
+    echo "创建临时目录..."
+    cd "$PACKAGE_DIR" && rm -rf "$TEMP_PATH" && mkdir -p "$TEMP_PATH"
+    
+    compile_table_client
+    compile_hbase_client
+    
+    # 记录构建时间
+    {
+        echo ""
+        echo "BUILD_TIME: $(date '+%b %d %Y %H:%M:%S')"
+    } >> "$BUILD_COMMITS_FILE"
+    
+    echo "依赖客户端编译完成！"
+    echo "=========================================="
+fi
 
-# 编译打包，跳过测试和checkstyle
-echo "开始编译打包..."
-mvn clean install -DskipTests -Dcheckstyle.skip=true -Dmaven.test.skip=true
+# 编译打包主项目
+echo "开始编译打包主项目..."
+cd $PACKAGE_DIR
+if [ "$USE_GITHUB" = "true" ] && [ -n "$TABLE_CLIENT_VERSION" ] && [ -n "$HBASE_CLIENT_VERSION" ]; then
+    echo "使用GitHub模式编译，指定客户端版本..."
+    mvn clean install -DskipTests -Dcheckstyle.skip=true -Dmaven.test.skip=true -Dgpg.skip=true -Dtable.client.version="$TABLE_CLIENT_VERSION" -Dhbase.client.version="$HBASE_CLIENT_VERSION"
+else
+    echo "使用标准模式编译..."
+    mvn clean install -DskipTests -Dcheckstyle.skip=true -Dmaven.test.skip=true -Dgpg.skip=true
+fi
 
 # 检查生成的jar包
 JAR_PATH="obhbase/target/obhbase-1.0-SNAPSHOT-jar-with-dependencies.jar"
@@ -86,12 +295,13 @@ if [ -f "$JAR_PATH" ]; then
     echo "=========================================="
     
     # 创建输出目录
-    OUTPUT_DIR="build"
-    echo "创建输出目录：$OUTPUT_DIR"
-    mkdir -p "$OUTPUT_DIR"
+    if [ ! -d "$BUILD_PATH" ]; then
+        echo "创建输出目录：$BUILD_PATH"
+        mkdir -p "$BUILD_PATH"
+    fi
     
     # 复制jar包到输出目录
-    OUTPUT_JAR="$OUTPUT_DIR/obhbase-1.0-SNAPSHOT-jar-with-dependencies.jar"
+    OUTPUT_JAR="$BUILD_PATH/obhbase-1.0-SNAPSHOT-jar-with-dependencies.jar"
     
     # 如果目标文件已存在，先重命名为.old后缀
     if [ -f "$OUTPUT_JAR" ]; then
@@ -103,12 +313,25 @@ if [ -f "$JAR_PATH" ]; then
     echo "复制jar包到：$OUTPUT_JAR"
     cp "$JAR_PATH" "$OUTPUT_JAR"
     
+    # 复制构建信息文件（如果存在）
+    if [ -f "$BUILD_COMMITS_FILE" ]; then
+        echo "构建信息文件已存在：$BUILD_COMMITS_FILE"
+    fi
+    
     # 验证复制是否成功
     if [ -f "$OUTPUT_JAR" ]; then
         echo "=========================================="
         echo "Jar包复制成功！"
         echo "最终jar包位置：$OUTPUT_JAR"
         echo "文件大小：$(ls -lh $OUTPUT_JAR | awk '{print $5}')"
+        
+        if [ "$USE_GITHUB" = "true" ]; then
+            echo ""
+            echo "GitHub模式构建信息："
+            if [ -f "$BUILD_COMMITS_FILE" ]; then
+                cat "$BUILD_COMMITS_FILE"
+            fi
+        fi
         echo "=========================================="
         
     else
@@ -124,4 +347,4 @@ else
     exit 1
 fi
 
-echo "构建完成！" 
+echo "构建完成！"

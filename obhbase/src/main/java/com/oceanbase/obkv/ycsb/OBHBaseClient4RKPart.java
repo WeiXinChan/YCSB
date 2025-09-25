@@ -154,6 +154,11 @@ public class OBHBaseClient4RKPart extends DB {
     return CURRENT_MILLS + mod * rangePartitionMills + (num - keyStart) % rangePartitionMills;
   }
 
+  private long getPartEndTimestamp(long num) {
+    int mod = (int) ((num - keyStart) / rangeRowsCount);
+    return CURRENT_MILLS + (mod + 1) * rangePartitionMills - 1;
+  }
+
   @Override
   public Status read(String table, String key, Set<String> fields,
                      HashMap<String, ByteIterator> result) {
@@ -172,13 +177,9 @@ public class OBHBaseClient4RKPart extends DB {
       long timeRangeEnd = 9;
       //只扫描1个range时才处理时间范围
       if (scanOnePart) {
-        int rangeRowCount = batchPutSize;
-        if (isSamePartInBatch) {
-          rangeRowCount = 1;
-        }
         long timestamp = getKeyTimestamp(num);
         timeRangeStart = timestamp - 1;
-        timeRangeEnd = timestamp + rangeRowCount;
+        timeRangeEnd = getPartEndTimestamp(num);
         scan.setTimeRange(timeRangeStart, timeRangeEnd);
       }
       String rsKey = String.format(KEY_FORMAT, num % totalUidCount, timeRangeStart);
