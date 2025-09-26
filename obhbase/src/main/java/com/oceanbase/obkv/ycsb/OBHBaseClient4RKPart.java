@@ -178,9 +178,7 @@ public class OBHBaseClient4RKPart extends DB {
       //只扫描1个range时才处理时间范围
       if (scanOnePart) {
         long timestamp = getKeyTimestamp(num);
-        timeRangeStart = timestamp - 1;
-        timeRangeEnd = getPartEndTimestamp(num);
-        scan.setTimeRange(timeRangeStart, timeRangeEnd);
+        scan.setTimeRange(timestamp-1, getPartEndTimestamp(num));
       }
       String rsKey = String.format(KEY_FORMAT, num % totalUidCount, timeRangeStart);
       String reKey = String.format(KEY_FORMAT, num % totalUidCount, timeRangeEnd);
@@ -203,7 +201,7 @@ public class OBHBaseClient4RKPart extends DB {
         if (debug) {
           System.out.println("scan empty, rsKey=" + rsKey + ", reKey="+ reKey);
         }
-        return Status.ERROR;
+        return Status.NOT_FOUND;
       }
       scanner.close();
     } catch (Exception e) {
