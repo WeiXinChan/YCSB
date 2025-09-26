@@ -153,6 +153,8 @@ rpc.execute.timeout=15000   # 客户端等待请求返回的超时时间
 
 #### 5.2. 进行put测试
 ```bash
+# 如果需要先load数据
+./run_fast_test.sh load workloads/workload_put
 # 运行put测试
 ./run_fast_test.sh put
 ```
