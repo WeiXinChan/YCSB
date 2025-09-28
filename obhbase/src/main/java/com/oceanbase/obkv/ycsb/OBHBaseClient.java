@@ -64,6 +64,7 @@ public class OBHBaseClient extends DB {
     public void init() throws DBException {
         debug = Boolean.parseBoolean(getProperties().getProperty("debug"));
         isObkv = Boolean.parseBoolean(getProperties().getProperty("isObkv"));
+        zeropadding = Integer.parseInt(getProperties().getProperty("zeropadding", "12"));
         columnFamily = getProperties().getProperty(COLUMN_FAMILY);
         tableName = getProperties().getProperty(TABLE);
         columnFamilyBytes = Bytes.toBytes(columnFamily);
@@ -202,8 +203,6 @@ public class OBHBaseClient extends DB {
                 config.set(property.getKey(), value);
             }
         }
-
-        zeropadding = Integer.parseInt(getProperties().getProperty("zeropadding", "12"));   
     }
 
     /**
