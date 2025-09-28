@@ -153,6 +153,10 @@ public class OBHBaseClient4RKPart extends DB {
     int mod = (int) ((num - keyStart) / rangeRowsCount);
     return CURRENT_MILLS + mod * rangePartitionMills + (num - keyStart) % rangePartitionMills;
   }
+  private long getPartStartTimestamp(long num) {
+    int mod = (int) ((num - keyStart) / rangeRowsCount);
+    return CURRENT_MILLS + mod * rangePartitionMills;
+  }
 
   private long getPartEndTimestamp(long num) {
     int mod = (int) ((num - keyStart) / rangeRowsCount);
@@ -177,8 +181,11 @@ public class OBHBaseClient4RKPart extends DB {
       long timeRangeEnd = 9;
       //只扫描1个range时才处理时间范围
       if (scanOnePart) {
-        long timestamp = getKeyTimestamp(num);
-        scan.setTimeRange(timestamp-1, getPartEndTimestamp(num));
+        long timestamp = getPartStartTimestamp(num);
+        scan.setTimeRange(timestamp - 1, getPartEndTimestamp(num));
+        if (debug) {
+          System.out.println("scan time range: " + (timestamp - 1) + " to " + getPartEndTimestamp(num));
+        }
       }
       String rsKey = String.format(KEY_FORMAT, num % totalUidCount, timeRangeStart);
       String reKey = String.format(KEY_FORMAT, num % totalUidCount, timeRangeEnd);
