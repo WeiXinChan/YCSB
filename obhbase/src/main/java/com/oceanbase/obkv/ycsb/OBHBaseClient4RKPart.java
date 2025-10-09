@@ -175,7 +175,7 @@ public class OBHBaseClient4RKPart extends DB {
     int num = Integer.parseInt(startkey);
     Scan scan = new Scan();
     scan.addFamily(columnFamilyBytes);
-    scan.setLimit(scanRows);
+    // scan.setLimit(scanRows);
     try {
       long timeRangeStart = 0;
       long timeRangeEnd = 9;
@@ -197,11 +197,16 @@ public class OBHBaseClient4RKPart extends DB {
       if (debug) {
         System.out.println("scan start, rsKey=" + rsKey + ", reKey="+ reKey);
       }
+      int resCount = 0;
       for (Result r : scanner) {
         isEmpty = false;
         byte[] rowKey = r.getRow();
+        resCount++;
         if (debug) {
           System.out.println("Scan Result is:" + new String(rowKey));
+        }
+        if (resCount >= scanRows) {
+          break;
         }
       }
       if (isEmpty) {
