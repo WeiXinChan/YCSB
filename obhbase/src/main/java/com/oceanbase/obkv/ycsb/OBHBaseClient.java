@@ -221,44 +221,6 @@ public class OBHBaseClient extends DB {
     }
 
     /**
-     * 测试ZooKeeper连接
-     */
-    private void testZooKeeperConnection(String quorum, String port) {
-        try {
-            System.out.println("Testing ZooKeeper connection to " + quorum + ":" + port);
-            org.apache.zookeeper.ZooKeeper zk = new org.apache.zookeeper.ZooKeeper(
-                quorum + ":" + port, 5000, new org.apache.zookeeper.Watcher() {
-                    @Override
-                    public void process(org.apache.zookeeper.WatchedEvent event) {
-                        System.out.println("ZooKeeper event: " + event.getType());
-                    }
-                });
-            
-            // 等待连接建立
-            int retries = 0;
-            while (zk.getState() != org.apache.zookeeper.ZooKeeper.States.CONNECTED && retries < 10) {
-                Thread.sleep(1000);
-                retries++;
-                System.out.println("ZooKeeper connection attempt " + retries + ", state: " + zk.getState());
-            }
-            
-            if (zk.getState() == org.apache.zookeeper.ZooKeeper.States.CONNECTED) {
-                System.out.println("ZooKeeper connection successful");
-                // 测试基本操作
-                zk.exists("/", false);
-                System.out.println("ZooKeeper root path accessible");
-            } else {
-                System.err.println("ZooKeeper connection failed, state: " + zk.getState());
-            }
-            
-            zk.close();
-        } catch (Exception e) {
-            System.err.println("ZooKeeper connection test failed: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
      * 将零填充的字符串转换为long，加上指定值，再转换回零填充字符串
      * @param paddedKey 零填充的字符串，如"00000028500000"
      * @param increment 要加上的值
@@ -312,6 +274,12 @@ public class OBHBaseClient extends DB {
             return SERVICE_UNAVAILABLE;
         } catch (ConcurrentModificationException e) {
             return SERVICE_UNAVAILABLE;
+        }
+        if (r == null || r.isEmpty()) {
+            if (debug) {
+                System.out.println("no data found for key: " + key);
+            }
+            return OK;
         }
         while (r.advance()) {
             final Cell cell = r.current();
