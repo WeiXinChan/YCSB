@@ -5,11 +5,13 @@ import com.alipay.oceanbase.rpc.property.Property;
 import com.yahoo.ycsb.ByteIterator;
 import com.yahoo.ycsb.*;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.client.ResultScanner;
-import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CellUtil;
+import java.io.IOException;
+import static com.yahoo.ycsb.Status.*;
+
 
 import java.util.*;
 
@@ -36,7 +38,7 @@ public class OBHBaseClient4RKPart extends DB {
   private int scanRows;
   private boolean isSamePartInBatch;
   private int batchPutSize;
-
+  private int batchReadSize;
 
   public void init() throws DBException {
     Properties props = getProperties();
@@ -134,6 +136,7 @@ public class OBHBaseClient4RKPart extends DB {
     scanOnePart = Boolean.parseBoolean(props.getProperty("table.scan.one.part", "false"));
     isSamePartInBatch = Boolean.parseBoolean(props.getProperty("batchput.issamepart.per.op", "false"));
     batchPutSize = Integer.parseInt(props.getProperty("batchput.size.per.op", "10"));
+    batchReadSize = Integer.parseInt(props.getProperty("batchread.size.per.op", "10"));
     printRuntimeParamsJson();
   }
 
@@ -166,7 +169,44 @@ public class OBHBaseClient4RKPart extends DB {
   @Override
   public Status read(String table, String key, Set<String> fields,
                      HashMap<String, ByteIterator> result) {
-    throw new RuntimeException("delete is not implemented");
+    Result r = null;
+    try {
+        int num = Integer.parseInt(key);
+        String rKey = String.format(KEY_FORMAT, num % totalUidCount, getKeyTimestamp(num));
+        if (debug) {
+          System.out.println("Doing read from HBase columnfamily " + columnFamily);
+          System.out.println("Doing read for key: " + rKey);
+        }
+        Get g = new Get(Bytes.toBytes(rKey));
+        g.setMaxVersions(1);
+        g.setTimeRange(getPartStartTimestamp(num), getPartEndTimestamp(num));
+        if (fields == null) {
+            g.addFamily(columnFamilyBytes);
+        } else {
+          for (String field : fields) {
+            g.addColumn(columnFamilyBytes, Bytes.toBytes(field));
+          }
+        }
+        r = ohTable.get(g);
+    } catch (IOException e) {
+        System.err.println("Error doing get: " + e);
+        return SERVICE_UNAVAILABLE;
+    } catch (ConcurrentModificationException e) {
+        return SERVICE_UNAVAILABLE;
+    }
+    if (r == null || r.isEmpty()) {
+      return Status.NOT_FOUND;
+    }
+    while (r.advance()) {
+        final Cell cell = r.current();
+        result.put(Bytes.toString(CellUtil.cloneQualifier(cell)), 
+                  new ByteArrayByteIterator(CellUtil.cloneValue(cell)));
+        if (debug) {
+            System.out.println("Result for field: " + Bytes.toString(CellUtil.cloneQualifier(cell))
+                                + " is: " + Bytes.toString(CellUtil.cloneValue(cell)));
+        }
+    }
+    return Status.OK;
   }
 
   @Override
@@ -225,12 +265,28 @@ public class OBHBaseClient4RKPart extends DB {
 
   @Override
   public Status update(String table, String key, HashMap<String, ByteIterator> values) {
-    return null;
+    return put(table, key, values);
   }
 
   @Override
   public Status insert(String table, String key, HashMap<String, ByteIterator> values) {
-    return null;
+    return put(table, key, values);
+  }
+
+  public Status put(String table, String key, HashMap<String, ByteIterator> values) {
+    int num = Integer.parseInt(key);
+    Map<String, String> valMaps = StringByteIterator.getStringMap(values);
+    long timestamp = getKeyTimestamp(num);
+    String rKey = String.format(KEY_FORMAT, num % totalUidCount, timestamp);
+    Put put = new Put(rKey.getBytes());
+    valMaps.forEach((k, v) -> put.addColumn(columnFamilyBytes, k.getBytes(), timestamp, v.getBytes()));
+    try {
+      ohTable.put(put);
+    } catch (Exception e) {
+      e.printStackTrace();
+      return Status.ERROR;
+    }
+    return Status.OK;
   }
 
   @Override
@@ -276,7 +332,48 @@ public class OBHBaseClient4RKPart extends DB {
   }
 
   public Status batchRead(String table, Set<String> fields, Map<String, Map<String, ByteIterator>> valuesMap) {
-    throw new RuntimeException("batchRead is not implemented");
+    try {
+      List<Get> getList = new ArrayList<>();
+      for (Map.Entry<String, Map<String, ByteIterator>> entry : valuesMap.entrySet()) {
+        String key = entry.getKey();
+        int num = Integer.parseInt(key);
+        long timestamp = getKeyTimestamp(num);
+        String rKey = String.format(KEY_FORMAT, num % totalUidCount, timestamp);
+        Get get = new Get(rKey.getBytes());
+        get.setMaxVersions(1);
+        get.setTimeRange(getPartStartTimestamp(num), getPartEndTimestamp(num));
+        getList.add(get);
+      }
+      Result[] res = ohTable.get(getList);
+      if (res == null || res.length == 0) {
+          if (debug) {
+            System.out.println("Result is empty");
+          }
+          return Status.NOT_FOUND;
+      }
+      for (int i = 0; i < res.length; i++) {
+        if (res[i] == null || ((Result)res[i]).isEmpty()) {
+          if (debug) {
+            System.out.println("Result for key: " + getList.get(i).getRow() + " is empty");
+          }
+          continue;
+        }
+        while (res[i].advance()) {
+          final Cell c = res[i].current();
+          Map<String, ByteIterator> result = valuesMap.get(Bytes.toString(CellUtil.cloneRow(c)));
+          result.put(Bytes.toString(CellUtil.cloneQualifier(c)),
+                  new ByteArrayByteIterator(CellUtil.cloneValue(c)));
+          if (debug) {
+            System.out.println(
+                    "Result for field: " + Bytes.toString(CellUtil.cloneQualifier(c))
+                            + " is: " + Bytes.toString(CellUtil.cloneValue(c)));
+          }
+        }
+      }
+    } catch (Exception e) {
+      e.printStackTrace();
+      return Status.ERROR;
+    }
+    return Status.OK;
   }
-
 }
