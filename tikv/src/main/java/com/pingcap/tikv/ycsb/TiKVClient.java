@@ -56,8 +56,8 @@ public class TiKVClient extends DB {
     }
 
     /**
-     * 初始化，可以从 java 启动参数中传入
-     * @throws DBException exception
+    * 初始化，可以从 java 启动参数中传入
+    * @throws DBException exception
     */
     public void init() throws DBException {
         Properties props = getProperties();
@@ -69,6 +69,7 @@ public class TiKVClient extends DB {
           throw new DBException("tikv.addr is not set");
         }
         TiConfiguration config = TiConfiguration.createRawDefault(tikvAddr);
+        config.setRawKVBatchWriteTimeoutInMS(20000);
         session = TiSession.create(config);
         client = session.createRawClient();
         zeropadding = Integer.parseInt(getProperties().getProperty("zeropadding", "12"));
@@ -79,12 +80,12 @@ public class TiKVClient extends DB {
     }
 
     /**
-     * 将零填充的字符串转换为long，加上指定值，再转换回零填充字符串
-     * @param paddedKey 零填充的字符串，如"00000028500000"
-     * @param increment 要加上的值
-     * @param paddingLength 填充长度
-     * @return 转换后的零填充字符串
-     */
+    * 将零填充的字符串转换为long，加上指定值，再转换回零填充字符串
+    * @param paddedKey 零填充的字符串，如"00000028500000"
+    * @param increment 要加上的值
+    * @param paddingLength 填充长度
+    * @return 转换后的零填充字符串
+    */
     private String incrementPaddedKey(String paddedKey, long increment, int paddingLength) {
         long keyNum = Long.parseLong(paddedKey);
         long newKeyNum = keyNum + increment;
@@ -92,23 +93,23 @@ public class TiKVClient extends DB {
     }
 
     /**
-     * 将零填充的字符串转换为long，加上指定值，再转换回零填充字符串（使用配置的填充长度）
-     * @param paddedKey 零填充的字符串，如"00000028500000"
-     * @param increment 要加上的值
-     * @return 转换后的零填充字符串
-     */
+    * 将零填充的字符串转换为long，加上指定值，再转换回零填充字符串（使用配置的填充长度）
+    * @param paddedKey 零填充的字符串，如"00000028500000"
+    * @param increment 要加上的值
+    * @return 转换后的零填充字符串
+    */
     private String incrementPaddedKey(String paddedKey, long increment) {
         return incrementPaddedKey(paddedKey, increment, zeropadding);
     }
 
     /**
-      * 读取数据测试，目前无法测试批量读取
-      * @param table table
-      * @param key key
-      * @param fields fields
-      * @param result result
-      * @return ans
-    */
+     * 读取数据测试，目前无法测试批量读取
+     * @param table table
+     * @param key key
+     * @param fields fields
+     * @param result result
+     * @return ans
+   */
     @Override
     public Status read(String table, String key, Set<String> fields,
                     HashMap<String, ByteIterator> result) {
@@ -116,6 +117,7 @@ public class TiKVClient extends DB {
           byte[] rowKey = getRowKey(table, key);
           Optional<ByteString> row = client.get(ByteString.copyFrom(rowKey));
           if (!row.isPresent()) {
+            System.out.println("read rowKey: " + ByteString.copyFrom(rowKey).toStringUtf8() + " not found");
             return Status.NOT_FOUND;
           }
           if (debug) {
@@ -124,6 +126,7 @@ public class TiKVClient extends DB {
           }
           Map<String, byte[]> decoded = rowCodecHelper.decode(row.get().toByteArray());
           if (decoded == null || decoded.isEmpty()) {
+            System.out.println("read rowKey: " + ByteString.copyFrom(rowKey).toStringUtf8() + " decoded is empty");
             return Status.NOT_FOUND;
           }
           for (Map.Entry<String, byte[]> entry : decoded.entrySet()) {
@@ -152,13 +155,13 @@ public class TiKVClient extends DB {
       }
 
     /**
-      * @param table table
-      * @param startkey startkey
-      * @param recordcount recordcount
-      * @param fields fields
-      * @param result result
-      * @return ans
-    */
+     * @param table table
+     * @param startkey startkey
+     * @param recordcount recordcount
+     * @param fields fields
+     * @param result result
+     * @return ans
+   */
     @Override
     public Status scan(String table, String startkey, int recordcount, Set<String> fields,
                     Vector<HashMap<String, ByteIterator>> result) {
@@ -185,11 +188,11 @@ public class TiKVClient extends DB {
     }
 
     /**
-    * @param table table
-    * @param key key
-    * @param values values
-    * @return ans
-    */
+   * @param table table
+   * @param key key
+   * @param values values
+   * @return ans
+   */
     @Override
     public Status update(String table, String key, HashMap<String, ByteIterator> values) {
         return put(table, key, values);
@@ -201,7 +204,7 @@ public class TiKVClient extends DB {
     }
 
     /**
-     * 删除接口，目前不支持批量删除测试
+    * 删除接口，目前不支持批量删除测试
     * @param table table
     * @param key key
     * @return ans
@@ -211,16 +214,25 @@ public class TiKVClient extends DB {
         return NOT_IMPLEMENTED;
     }
 
-    @Override
     public Status batchPut(String table, Map<String, Map<String, ByteIterator>> valuesMap) {
       Map<ByteString, ByteString> batchPutMap = new HashMap<>();
       try {
         for (Map.Entry<String, Map<String, ByteIterator>> entry : valuesMap.entrySet()) {
           byte[] rowKey = getRowKey(table, entry.getKey());
           byte[] rowValue = rowCodecHelper.encode(entry.getValue());
+          if (debug) {
+            System.out.println("batchPut: {rowKey: " + ByteString.copyFrom(rowKey).toStringUtf8() + " rowValue: " + ByteString.copyFrom(rowValue).toStringUtf8() + "}");
+          }
           batchPutMap.put(ByteString.copyFrom(rowKey), ByteString.copyFrom(rowValue));
         }
+        long cost = 0;
+        if (debug) {
+          cost = System.currentTimeMillis();
+        }
         client.batchPut(batchPutMap);
+        if (debug) {
+          System.out.println("batchPut cost: " + (System.currentTimeMillis() - cost) + "ms");
+        }
         return OK;
       } catch (Exception e) {
         e.printStackTrace();
@@ -228,7 +240,6 @@ public class TiKVClient extends DB {
       }
     }
 
-    @Override
     public Status batchRead(String table, Set<String> fields, Map<String, Map<String, ByteIterator>> valuesMap) {
         try {
             List getList = new ArrayList<ByteString>();
@@ -262,4 +273,4 @@ public class TiKVClient extends DB {
             return ERROR;
         }
     }
- }
+}
