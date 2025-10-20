@@ -989,6 +989,14 @@ public class Client
       System.err.print(" "+args[i]);
     }
     System.err.println();
+    
+    // 打印props的内容
+    System.err.println("Properties content:");
+    for (String key : props.stringPropertyNames()) {
+      System.err.println("  " + key + " = " + props.getProperty(key));
+    }
+    System.err.println();
+    
     System.err.println("Loading workload...");
 
     Workload workload = null;

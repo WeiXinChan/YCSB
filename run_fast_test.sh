@@ -5,6 +5,14 @@
 
 set -e  # 遇到错误时退出
 
+# 生成日志文件名的函数
+generate_log_filename() {
+    local operation="$1"
+    local info="$2"
+    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    echo "${operation}_${info}_${timestamp}.log"
+}
+
 # 检查build目录是否存在
 BUILD_DIR="build"
 if [ ! -d "$BUILD_DIR" ]; then
@@ -59,7 +67,7 @@ if [ $# -eq 0 ]; then
 fi
 
 OPERATION="$1"
-DBClass="com.oceanbase.obkv.ycsb.OBHBaseClient"
+
 # 根据操作类型执行相应的测试
 case "$OPERATION" in
     "put")
@@ -68,10 +76,12 @@ case "$OPERATION" in
             echo "错误：workload文件不存在：$WORKLOAD_FILE"
             exit 1
         fi
+        LOG_FILE=$(generate_log_filename "put" "$2")
         echo "=========================================="
         echo "执行写入测试..."
+        echo "日志文件：$LOG_FILE"
         echo "=========================================="
-        java -jar "$JAR_FILE" -db "$DBClass" -P "$WORKLOAD_FILE"
+        java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" 2>&1 | tee "$LOG_FILE"
         ;;
     "read")
         WORKLOAD_FILE="workloads/workload_read"
@@ -79,10 +89,12 @@ case "$OPERATION" in
             echo "错误：workload文件不存在：$WORKLOAD_FILE"
             exit 1
         fi
+        LOG_FILE=$(generate_log_filename "read" "$2")
         echo "=========================================="
         echo "执行读取测试..."
+        echo "日志文件：$LOG_FILE"
         echo "=========================================="
-        java -jar "$JAR_FILE" -db "$DBClass" -P "$WORKLOAD_FILE"
+        java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" 2>&1 | tee "$LOG_FILE"
         ;;
     "scan")
         WORKLOAD_FILE="workloads/workload_scan"
@@ -90,10 +102,12 @@ case "$OPERATION" in
             echo "错误：workload文件不存在：$WORKLOAD_FILE"
             exit 1
         fi
+        LOG_FILE=$(generate_log_filename "scan" "$2")
         echo "=========================================="
         echo "执行扫描测试..."
+        echo "日志文件：$LOG_FILE"
         echo "=========================================="
-        java -jar "$JAR_FILE" -db "$DBClass" -P "$WORKLOAD_FILE"
+        java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" 2>&1 | tee "$LOG_FILE"
         ;;
     "load")
         # 检查是否提供了workload文件参数
@@ -103,11 +117,13 @@ case "$OPERATION" in
                 echo "错误：指定的workload文件不存在：$WORKLOAD_FILE"
                 exit 1
             fi
+            LOG_FILE=$(generate_log_filename "load" "$2")
             echo "=========================================="
             echo "使用指定的workload文件执行数据加载..."
             echo "Workload文件：$WORKLOAD_FILE"
+            echo "日志文件：$LOG_FILE"
             echo "=========================================="
-            java -jar "$JAR_FILE" -db "$DBClass" -P "$WORKLOAD_FILE" -load
+            java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" -load 2>&1 | tee "$LOG_FILE"
         else
             # 交互式选择workload文件
             echo "=========================================="
@@ -141,10 +157,12 @@ case "$OPERATION" in
                 echo "错误：workload文件不存在：$WORKLOAD_FILE"
                 exit 1
             fi
+            LOG_FILE=$(generate_log_filename "load")
             echo "=========================================="
             echo "执行数据加载..."
+            echo "日志文件：$LOG_FILE"
             echo "=========================================="
-            java -jar "$JAR_FILE" -db "$DBClass" -P "$WORKLOAD_FILE" -load
+            java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" -load 2>&1 | tee "$LOG_FILE"
         fi
         ;;
     "batch_put")
@@ -153,10 +171,12 @@ case "$OPERATION" in
             echo "错误：workload文件不存在：$WORKLOAD_FILE"
             exit 1
         fi
+        LOG_FILE=$(generate_log_filename "batch_put" "$2")
         echo "=========================================="
         echo "执行批量写入测试..."
+        echo "日志文件：$LOG_FILE"
         echo "=========================================="
-        java -jar "$JAR_FILE" -db "$DBClass" -P "$WORKLOAD_FILE"
+        java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" 2>&1 | tee "$LOG_FILE"
         ;;
     "batch_read")
         WORKLOAD_FILE="workloads/workload_batch_read"
@@ -164,10 +184,12 @@ case "$OPERATION" in
             echo "错误：workload文件不存在：$WORKLOAD_FILE"
             exit 1
         fi
+        LOG_FILE=$(generate_log_filename "batch_read" "$2")
         echo "=========================================="
         echo "执行批量读取测试..."
+        echo "日志文件：$LOG_FILE"
         echo "=========================================="
-        java -jar "$JAR_FILE" -db "$DBClass" -P "$WORKLOAD_FILE"
+        java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" 2>&1 | tee "$LOG_FILE"
         ;;
     "workload")
         if [ $# -lt 2 ]; then
@@ -180,11 +202,13 @@ case "$OPERATION" in
             echo "错误：指定的workload文件不存在：$WORKLOAD_FILE"
             exit 1
         fi
+        LOG_FILE=$(generate_log_filename "workload" "$2")
         echo "=========================================="
         echo "使用自定义workload文件执行测试..."
         echo "Workload文件：$WORKLOAD_FILE"
+        echo "日志文件：$LOG_FILE"
         echo "=========================================="
-        java -jar "$JAR_FILE" -db "$DBClass" -P "$WORKLOAD_FILE"
+        java -jar "$JAR_FILE" -P "$WORKLOAD_FILE" 2>&1 | tee "$LOG_FILE"
         ;;
     *)
         echo "错误：不支持的操作类型：$OPERATION"
