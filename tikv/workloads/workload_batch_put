@@ -28,11 +28,12 @@ workload=com.yahoo.ycsb.workloads.CoreWorkload
 # for batchput, if you want to insert record without duplication, 
 # the recordcount mut be larger than or eqaul to batchput.size.per.op * operationcount
 # otherwise, it may generate duplicate records and put operation will overwrite them
-recordcount=
-operationcount=
+recordcount=10000
+operationcount=1000
+orderinsert=ordered
 
 # The number of fields in a record
-fieldcount=10
+fieldcount=1
 # The size of each field (in bytes)
 fieldlength=100
 
@@ -51,10 +52,22 @@ batchread.size.per.op=10
 requestdistribution=uniform
 
 # threadcounts
-threadcount=10
+threadcount=400
 
-#### 连接方式 ####
+#### TiKV连接配置 ####
 # tikv.pd.addr (e.g. tikv.pd.addr=ip1,ip2,ip3)
-tikv.pd.addr=
+tikv.pd.addr=11.162.217.150:2379,11.162.217.151:2379,11.162.217.153:2379
 # debug mode
-tikv.debug=false
+tikv.debug=true
+
+#### 批量写入性能配置 ####
+# 批量写入超时时间（毫秒）
+tikv.batch.write.timeout=5000
+# 批量写入线程数
+tikv.batch.put.concurrency=20
+
+#### 顺序写入配置 ####
+# 是否启用顺序写入（每个线程写入不重叠的key范围）
+batchput.sequential.enabled=true
+# 顺序写入的起始key值
+batchput.sequential.start=0

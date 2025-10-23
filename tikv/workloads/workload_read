@@ -24,13 +24,15 @@
 
 workload=com.yahoo.ycsb.workloads.CoreWorkload
 
-recordcount=30000000
-operationcount=30000000
+recordcount=100000000
+operationcount=100000000
+
+orderinsert=ordered
 
 # The number of fields in a record
-fieldcount=10
+fieldcount=1
 # The size of each field (in bytes)
-fieldlength=100
+fieldlength=1000
 
 insertproportion=0
 readproportion=1.0
@@ -41,10 +43,10 @@ scanproportion=0
 requestdistribution=uniform
 
 # threadcounts
-threadcount=10
+threadcount=200
 
 #### 连接方式 ####
 # tikv.pd.addr (e.g. tikv.pd.addr=ip1,ip2,ip3)
-tikv.pd.addr=
+tikv.pd.addr=11.162.217.150:2379,11.162.217.151:2379,11.162.217.153:2379
 # debug mode
 tikv.debug=false

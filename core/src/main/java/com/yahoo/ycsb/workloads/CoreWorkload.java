@@ -370,6 +370,24 @@ public class CoreWorkload extends Workload {
   public static final String BATCH_READ_SIZE_PER_OP = "batchread.size.per.op";
   public static final String BATCH_READ_SIZE_PER_OP_DEFAULT = "10";
 
+  /**
+   * The name of the property for enabling sequential batch put operations.
+   */
+  public static final String BATCH_PUT_SEQUENTIAL_ENABLED = "batchput.sequential.enabled";
+  public static final String BATCH_PUT_SEQUENTIAL_ENABLED_DEFAULT = "false";
+
+  /**
+   * The name of the property for the starting key value for sequential batch put operations.
+   */
+  public static final String BATCH_PUT_SEQUENTIAL_START = "batchput.sequential.start";
+  public static final String BATCH_PUT_SEQUENTIAL_START_DEFAULT = "1";
+
+  /**
+   * The name of the property for enabling debug logs in CoreWorkload.
+   */
+  public static final String DEBUG_PROPERTY = "core.isdebug";
+  public static final String DEBUG_PROPERTY_DEFAULT = "false";
+
   NumberGenerator keysequence;
 
   DiscreteGenerator operationchooser;
@@ -392,6 +410,16 @@ public class CoreWorkload extends Workload {
   int batchPutSize;
   int batchReadSize;
   int operationcount;
+
+  // Sequential batch put configuration
+  boolean batchPutSequentialEnabled;
+  int batchPutSequentialStart;
+  boolean isDebug;
+  
+  // Global key allocator for sequential batch put
+  private static volatile CounterGenerator globalBatchAllocator;
+  private static final Object globalBatchAllocatorLock = new Object();
+  private static int globalTotalBatches;
 
   private Measurements _measurements = Measurements.getMeasurements();
 
@@ -554,12 +582,44 @@ public class CoreWorkload extends Workload {
         INSERTION_RETRY_INTERVAL, INSERTION_RETRY_INTERVAL_DEFAULT));
     batchPutSize = Integer.parseInt(p.getProperty(BATCH_PUT_SIZE_PER_OP, BATCH_PUT_SIZE_PER_OP_DEFAULT));
     batchReadSize = Integer.parseInt(p.getProperty(BATCH_READ_SIZE_PER_OP, BATCH_READ_SIZE_PER_OP_DEFAULT));
+    
+    // Sequential batch put configuration
+    batchPutSequentialEnabled = Boolean.parseBoolean(p.getProperty(BATCH_PUT_SEQUENTIAL_ENABLED, BATCH_PUT_SEQUENTIAL_ENABLED_DEFAULT));
+    batchPutSequentialStart = Integer.parseInt(p.getProperty(BATCH_PUT_SEQUENTIAL_START, BATCH_PUT_SEQUENTIAL_START_DEFAULT));
+    isDebug = Boolean.parseBoolean(p.getProperty(DEBUG_PROPERTY, DEBUG_PROPERTY_DEFAULT));
+    
+    // Initialize global batch allocator for sequential batch put
+    if (batchPutSequentialEnabled) {
+      synchronized (globalBatchAllocatorLock) {
+        if (globalBatchAllocator == null) {
+          // Calculate total batches needed: (recordcount - batchPutSequentialStart + 1) / batchPutSize
+          int totalKeysAvailable = recordcount - batchPutSequentialStart + 1;
+          int totalBatchesNeeded = (totalKeysAvailable + batchPutSize - 1) / batchPutSize; // 向上取整
+          globalTotalBatches = totalBatchesNeeded;
+          globalBatchAllocator = new CounterGenerator(0);
+        }
+      }
+    }
   }
 
   public String buildKeyName(long keynum) {
     if (!orderedinserts) {  
       keynum = Utils.hash(keynum) % recordcount;
     }
+    String value = Long.toString(keynum);
+    int fill = zeropadding - value.length();
+    String prekey = "";
+    for(int i=0; i<fill; i++) {
+      prekey += '0';
+    }
+    String paddedKey = prekey + value;
+    return paddedKey;
+  }
+
+  /**
+   * Build key name for sequential batch put without hash processing
+   */
+  public String buildSequentialKeyName(long keynum) {
     String value = Long.toString(keynum);
     int fill = zeropadding - value.length();
     String prekey = "";
@@ -691,7 +751,7 @@ public class CoreWorkload extends Workload {
       doTransactionScan(db);
       break;
     case "BATCH_PUT":
-      doTransactionBatchPut(db);
+      doTransactionBatchPut(db, threadstate);
       break;
     case "BATCH_READ":
       doTransactionBatchRead(db);
@@ -933,16 +993,72 @@ public class CoreWorkload extends Workload {
   }
 
 
-  public void doTransactionBatchPut(DB db) {
+  public void doTransactionBatchPut(DB db, Object threadstate) {
     Map<String,Map<String,ByteIterator>> valuesMap = new HashMap<>();
-    for (int i = 0; i < batchPutSize; i++) {
-      // choose the next key
-      int keyNum = transactioninsertkeysequence.nextValue();
-      String dbKey = buildKeyName(keyNum);
-      HashMap<String, ByteIterator> values = buildValues(dbKey);
-      valuesMap.put(dbKey,values);
-      transactioninsertkeysequence.acknowledge(keyNum);
+    
+    // Debug information
+    if (isDebug) {
+      System.out.println("DEBUG: batchPutSequentialEnabled=" + batchPutSequentialEnabled);
+      System.out.println("DEBUG: threadstate=" + threadstate);
+      System.out.println("DEBUG: threadstate instanceof SequentialBatchPutState=" + (threadstate instanceof SequentialBatchPutState));
+      System.out.println("DEBUG: globalBatchAllocator=" + globalBatchAllocator);
     }
+    
+    if (batchPutSequentialEnabled && threadstate instanceof SequentialBatchPutState) {
+      if (isDebug) {
+        System.out.println("DEBUG: Entering sequential batch put mode");
+      }
+      // Use global batch allocator for sequential batch put
+      synchronized (globalBatchAllocatorLock) {
+        if (globalBatchAllocator != null) {
+          // Allocate a batch index from global allocator
+          int batchIndex = globalBatchAllocator.nextValue().intValue();
+          if (batchIndex >= globalTotalBatches) {
+            System.out.println("DEBUG: No more batches available, batchIndex=" + batchIndex + ", totalBatches=" + globalTotalBatches);
+            db.batchPut(table, valuesMap);
+            return;
+          }
+          int startKeyIndex = batchIndex * batchPutSize;
+          if (isDebug) {
+            System.out.println("DEBUG: batchIndex=" + batchIndex + ", startKeyIndex=" + startKeyIndex);
+          }
+          for (int i = 0; i < batchPutSize; i++) {
+            int keyNum = batchPutSequentialStart + startKeyIndex + i;
+            // Check if we exceed the available key range
+            if (keyNum > recordcount) {
+              if (isDebug) {
+                System.out.println("DEBUG: Breaking due to keyNum > recordcount: " + keyNum + " > " + recordcount);
+              }
+              break; // Stop if we exceed recordcount
+            }
+            String dbKey = buildSequentialKeyName(keyNum);
+            HashMap<String, ByteIterator> values = buildValues(dbKey);
+            valuesMap.put(dbKey, values);
+            if (isDebug) {
+              System.out.println("dbKey: " + dbKey);
+            }
+          }
+        } else {
+          if (isDebug) {
+            System.out.println("DEBUG: globalBatchAllocator is null");
+          }
+        }
+      }
+    } else {
+      if (isDebug) {
+        System.out.println("DEBUG: Using original random key approach");
+      }
+      // Use original random key approach
+      for (int i = 0; i < batchPutSize; i++) {
+        // choose the next key
+        int keyNum = transactioninsertkeysequence.nextValue();
+        String dbKey = buildKeyName(keyNum);
+        HashMap<String, ByteIterator> values = buildValues(dbKey);
+        valuesMap.put(dbKey,values);
+        transactioninsertkeysequence.acknowledge(keyNum);
+      }
+    }
+    
     db.batchPut(table, valuesMap);
   }
 
@@ -968,5 +1084,23 @@ public class CoreWorkload extends Workload {
       valuesMap.put(dbKey,values);
     }
     db.batchRead(table, fields, valuesMap);
+  }
+
+  /**
+   * Initialize any state for a particular client thread for sequential batch put operations.
+   */
+  public Object initThread(Properties p, int mythreadid, int threadcount) throws WorkloadException {
+    if (batchPutSequentialEnabled) {
+      // Return a simple identifier for sequential mode
+      return new SequentialBatchPutState();
+    }
+    return null;
+  }
+
+  /**
+   * Internal class to identify sequential batch put state.
+   */
+  private static class SequentialBatchPutState {
+    // Simple marker class for sequential batch put mode
   }
 }

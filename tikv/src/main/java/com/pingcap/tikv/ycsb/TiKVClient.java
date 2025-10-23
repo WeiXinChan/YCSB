@@ -33,6 +33,15 @@ import static com.yahoo.ycsb.workloads.CoreWorkload.FIELD_COUNT_PROPERTY_DEFAULT
 public class TiKVClient extends DB {
     public static final String PROP_KEY_TIKV_ADDR = "tikv.pd.addr";
     public static final String PROP_KEY_DEBUG = "tikv.debug";
+    
+    // 批量写入相关配置参数
+    public static final String PROP_KEY_BATCH_WRITE_TIMEOUT = "tikv.batch.write.timeout";
+    public static final String PROP_KEY_BATCH_PUT_CONCURRENCY = "tikv.batch.put.concurrency";
+    
+    // 默认值
+    private static final int DEFAULT_BATCH_WRITE_TIMEOUT = 5000; // 5秒
+    private static final int DEFAULT_BATCH_PUT_CONCURRENCY = 10;
+    
     TiSession session = null;
     RawKVClient client = null;
     RowCodecHelper rowCodecHelper = null;
@@ -68,11 +77,49 @@ public class TiKVClient extends DB {
         if (tikvAddr == null) {
           throw new DBException("tikv.addr is not set");
         }
+        
+        // 创建TiConfiguration并应用配置参数
         TiConfiguration config = TiConfiguration.createRawDefault(tikvAddr);
-        config.setRawKVBatchWriteTimeoutInMS(20000);
+
+        // 读取并应用批量写入相关配置
+        int batchWriteTimeout = getIntProperty(props, PROP_KEY_BATCH_WRITE_TIMEOUT, DEFAULT_BATCH_WRITE_TIMEOUT);
+        int batchPutConcurrency = getIntProperty(props, PROP_KEY_BATCH_PUT_CONCURRENCY, DEFAULT_BATCH_PUT_CONCURRENCY);
+        
+        // 应用配置到TiConfiguration
+        config.setRawKVBatchWriteTimeoutInMS(batchWriteTimeout);
+        config.setBatchPutConcurrency(batchPutConcurrency);
+
+        
+        // 打印配置信息（仅在debug模式下）
+        if (debug) {
+            System.out.println("TiKV Configuration:");
+            System.out.println("  PD Address: " + tikvAddr);
+            System.out.println("  Batch Write Timeout: " + batchWriteTimeout + "ms");
+            System.out.println("  Batch Put Concurrency: " + batchPutConcurrency);
+        }
+        
         session = TiSession.create(config);
         client = session.createRawClient();
         zeropadding = Integer.parseInt(getProperties().getProperty("zeropadding", "12"));
+    }
+    
+    /**
+     * 安全地获取整数配置参数
+     * @param props 属性对象
+     * @param key 配置键
+     * @param defaultValue 默认值
+     * @return 配置值或默认值
+     */
+    private int getIntProperty(Properties props, String key, int defaultValue) {
+        try {
+            String value = props.getProperty(key);
+            if (value != null && !value.trim().isEmpty()) {
+                return Integer.parseInt(value.trim());
+            }
+        } catch (NumberFormatException e) {
+            System.err.println("Warning: Invalid value for " + key + ", using default: " + defaultValue);
+        }
+        return defaultValue;
     }
 
     public byte[] getRowKey(String table, String key) {
@@ -178,6 +225,9 @@ public class TiKVClient extends DB {
           for (Map.Entry<String, byte[]> entry : decoded.entrySet()) {
             resultMap.put(entry.getKey(), new ByteArrayByteIterator(entry.getValue()));
           }
+          if (debug) {
+            System.out.println("scan result: {key: " + key + " result: " + resultMap + "}");
+          }
           result.add(resultMap);
         }
         return OK;
@@ -215,8 +265,9 @@ public class TiKVClient extends DB {
     }
 
     public Status batchPut(String table, Map<String, Map<String, ByteIterator>> valuesMap) {
-      Map<ByteString, ByteString> batchPutMap = new HashMap<>();
       try {
+        // 直接处理批量写入，不进行拆分
+        Map<ByteString, ByteString> batchPutMap = new HashMap<>();
         for (Map.Entry<String, Map<String, ByteIterator>> entry : valuesMap.entrySet()) {
           byte[] rowKey = getRowKey(table, entry.getKey());
           byte[] rowValue = rowCodecHelper.encode(entry.getValue());
@@ -225,13 +276,17 @@ public class TiKVClient extends DB {
           }
           batchPutMap.put(ByteString.copyFrom(rowKey), ByteString.copyFrom(rowValue));
         }
+        
         long cost = 0;
         if (debug) {
           cost = System.currentTimeMillis();
+          System.out.println("Processing batch with " + batchPutMap.size() + " records");
         }
+        
         client.batchPut(batchPutMap);
+        
         if (debug) {
-          System.out.println("batchPut cost: " + (System.currentTimeMillis() - cost) + "ms");
+          System.out.println("batchPut completed in " + (System.currentTimeMillis() - cost) + "ms");
         }
         return OK;
       } catch (Exception e) {
@@ -239,15 +294,16 @@ public class TiKVClient extends DB {
         return ERROR;
       }
     }
+    
 
     public Status batchRead(String table, Set<String> fields, Map<String, Map<String, ByteIterator>> valuesMap) {
         try {
-            List getList = new ArrayList<ByteString>();
+            List<ByteString> getList = new ArrayList<ByteString>();
             for (String key : valuesMap.keySet()) {
                 byte[] rowKey = getRowKey(table, key);
                 getList.add(ByteString.copyFrom(rowKey));
             }
-            List<Kvrpcpb.KvPair> kvPairs= client.batchGet(getList);
+            List<Kvrpcpb.KvPair> kvPairs = client.batchGet(getList);
             if (kvPairs == null || kvPairs.isEmpty()) {
               return NOT_FOUND;
             }
@@ -266,6 +322,8 @@ public class TiKVClient extends DB {
               if (debug) {
                 System.out.println("batchRead result: {key: " + key + " result: " + resultMap + "}");
               }
+              // 将结果存储到valuesMap中，使用key作为索引
+              valuesMap.put(key, resultMap);
             }
             return OK;
         } catch (Exception e) {
