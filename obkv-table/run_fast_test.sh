@@ -48,13 +48,13 @@ if [ $# -eq 0 ]; then
     echo "  load [workload_file] - 执行数据加载，可指定workload文件"
     echo "  batch_put  - 执行批量写入测试"
     echo "  batch_read - 执行批量读取测试"
-    echo "  workload <workload_file> - 使用指定的workload文件执行测试"
+    echo "  run [workload_file] - 使用指定的workload文件执行测试"
     echo ""
     echo "示例："
     echo "  $0 load                           # 交互式选择workload文件"
     echo "  $0 load workloads/my_workload     # 直接指定workload文件"
     echo "  $0 put # 运行put测试"
-    echo "  $0 workload /path/to/custom/workload"
+    echo "  $0 run /path/to/custom/workload"
     exit 1
 fi
 
@@ -169,10 +169,10 @@ case "$OPERATION" in
         echo "=========================================="
         java -jar "$JAR_FILE" -P "$WORKLOAD_FILE"
         ;;
-    "workload")
+    "run")
         if [ $# -lt 2 ]; then
-            echo "错误：workload选项需要指定workload文件路径"
-            echo "用法：$0 workload <workload_file>"
+            echo "错误：run选项需要指定workload文件路径"
+            echo "用法：$0 run <workload_file>"
             exit 1
         fi
         WORKLOAD_FILE="$2"

@@ -72,3 +72,25 @@ TiKV性能测试模块，包含：
 - 对应的工作负载配置文件
 - 构建和测试脚本
 
+## 快速测试（以OBKV举例，TiKV测试方法类似）
+### 1. 编译打包
+```bash
+cd obkv-table
+# 编译打包项目
+./build.sh
+```
+
+### 2. 配置workload
+修改 obkv-table/workloads/workload_load 和 obkv-table/workloads/workload_run 的连接参数
+
+### 3. 导入基础数据
+读写混合测试需要先导入基础数据
+```bash
+./run_fast_test.sh load workloads/workload_load
+```
+
+### 4. 读写混合测试
+基础数据导入完毕后，进行读写混合测试
+```bash
+./run_fast_test.sh run workloads/workload_run
+```

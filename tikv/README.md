@@ -66,7 +66,7 @@ tikv.pd.addr=ip1,ip2,ip3
 ./run_fast_test.sh load
 
 # 如果想使用自己自定义的workload文件，可以显式指定
-./run_fast_test.sh load workloads/my_workload
+./run_fast_test.sh load [workloads/workload_load]
 
 # 扫描数据
 ./run_fast_test.sh scan

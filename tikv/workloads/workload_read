@@ -47,6 +47,6 @@ threadcount=200
 
 #### 连接方式 ####
 # tikv.pd.addr (e.g. tikv.pd.addr=ip1,ip2,ip3)
-tikv.pd.addr=11.162.217.150:2379,11.162.217.151:2379,11.162.217.153:2379
+tikv.pd.addr=
 # debug mode
 tikv.debug=false
