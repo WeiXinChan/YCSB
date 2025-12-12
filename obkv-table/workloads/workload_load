@@ -24,40 +24,31 @@
 
 workload=com.yahoo.ycsb.workloads.CoreWorkload
 
-recordcount=1073741820
-operationcount=107374182
-orderinsert=ordered
-
-# The number of fields in a record
-fieldcount=1
-# The size of each field (in bytes)
-fieldlength=128
+# ATTENTION !!! 
+# for batchput, if you want to insert record without duplication, 
+# the recordcount mut be larger than or eqaul to batchput.size.per.op * operationcount
+# otherwise, it may generate duplicate records and put operation will overwrite them
+table=kv_table
+recordcount=
+operationcount=
 
 insertproportion=0
 readproportion=0
 updateproportion=0
 readmodifywriteproportion=0
 scanproportion=0
-
 # for batch operation
 batchputproportion=1
 batchput.size.per.op=10
-
 batchreadproportion=0
 batchread.size.per.op=10
 
 requestdistribution=uniform
 
 # threadcounts
-threadcount=400
+threadcount=10
 
-#### 顺序写入配置 ####
-# 是否启用顺序写入（每个线程写入不重叠的key范围）
-batchput.sequential.enabled=true
-# 顺序写入的起始key值
-batchput.sequential.start=0
-
-#### 连接方式 ####
+#### 连接方式(二选一) ####
 obkv.isOdpMode=false
 
 ##### ODP模式必填 #####
@@ -65,12 +56,18 @@ obkv.odpAddr=
 obkv.odpPort=
 
 ##### 直连模式必填 #####
-### 连接参数参考：https://www.oceanbase.com/docs/common-oceanbase-database-cn-1000000001516163#2-title-%E7%9B%B4%E8%BF%9E%E6%A8%A1%E5%BC%8F ###
 obkv.configUrl=
 obkv.sysUserName=
 obkv.sysPassword=
+##### 账户密码 #####
 obkv.fullUserName=
 obkv.password=
-obkv.insertType=put
 obkv.database=test
+
+# ========== 分区配置（必须配置） ==========
+obkv.rangePartitionStartTs=
+obkv.rangePartitionDurationMs=
+obkv.rangePartitionCount=
+obkv.pmidCount=
+
 obkv.debug=false

@@ -90,7 +90,7 @@ public class CoreWorkload extends Workload {
   /**
    * The default name of the database table to run queries against.
    */
-  public static final String TABLENAME_PROPERTY_DEFAULT = "usertable";
+  public static final String TABLENAME_PROPERTY_DEFAULT = "kv_table";
 
   public static String table;
 
@@ -324,7 +324,7 @@ public class CoreWorkload extends Workload {
   /**
    * Default insert order.
    */
-  public static final String INSERT_ORDER_PROPERTY_DEFAULT = "hashed";
+  public static final String INSERT_ORDER_PROPERTY_DEFAULT = "ordered";
 
   /**
    * Percentage data items that constitute the hot set.

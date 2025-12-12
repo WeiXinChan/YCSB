@@ -22,6 +22,7 @@ import java.util.*;
 import static com.yahoo.ycsb.Status.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.sql.Timestamp;
 import com.alipay.oceanbase.rpc.ObTableClient;
 import com.alipay.oceanbase.rpc.mutation.InsertOrUpdate;
 import com.alipay.oceanbase.rpc.get.Get;
@@ -32,6 +33,8 @@ import com.alipay.oceanbase.rpc.mutation.Row;
 import com.alipay.oceanbase.rpc.mutation.Mutation;
 import static com.alipay.oceanbase.rpc.mutation.MutationFactory.colVal;
 import static com.alipay.oceanbase.rpc.mutation.MutationFactory.row;
+import static com.alipay.oceanbase.rpc.mutation.MutationFactory.query;
+import com.alipay.oceanbase.rpc.table.api.TableQuery;
 import com.alipay.oceanbase.rpc.stream.QueryResultSet;
 import com.alipay.oceanbase.rpc.table.api.TableQuery;
 import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
@@ -54,6 +57,10 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
     public static final String PROP_KEY_INSERT_TYPE             = "obkv.insertType";
     public static final String PROP_KEY_UPDATE_TYPE             = "obkv.updateType";
     public static final String PROP_KEY_BATCH_PUT_TYPE          = "obkv.batchPutType";
+    public static final String PROP_KEY_PARTITION_START_TS     = "obkv.rangePartitionStartTs";
+    public static final String PROP_KEY_PARTITION_DURATION_MS   = "obkv.rangePartitionDurationMs";
+    public static final String PROP_KEY_PARTITION_COUNT         = "obkv.rangePartitionCount";
+    public static final String PROP_KEY_PMID_COUNT              = "obkv.pmidCount";
 
     private ObTableClient client = null;
     private String tableName;
@@ -66,6 +73,10 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
     private String updateType;
     private String batchPutType;
     private int zeropadding;
+    private long partitionStartTs = 0;  // 第一个range分区的起始时间戳（毫秒）
+    private long partitionDurationMs = 0;  // 每个range分区的时间长度（毫秒）
+    private int partitionCount = 0;  // 一级range分区的数量
+    private int pmidCount = 1;  // pmid的总数量
 
     @Override
     public void cleanup() throws DBException {
@@ -112,8 +123,8 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
             }
         }
 
-        insertType = props.getProperty(PROP_KEY_INSERT_TYPE, "insertup").toLowerCase();
-        updateType = props.getProperty(PROP_KEY_UPDATE_TYPE, "update").toLowerCase();
+        insertType = props.getProperty(PROP_KEY_INSERT_TYPE, "put").toLowerCase();
+        updateType = props.getProperty(PROP_KEY_UPDATE_TYPE, "put").toLowerCase();
         batchPutType = props.getProperty(PROP_KEY_BATCH_PUT_TYPE, "put").toLowerCase();
 
         // debug
@@ -138,6 +149,56 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
             threadCount = Integer.parseInt(props.getProperty(PROP_KEY_THREAD_COUNT));
         }
         zeropadding = Integer.parseInt(getProperties().getProperty("zeropadding", "12"));   
+        
+        // partition configuration for uniform distribution - 必须显式指定且值必须大于0
+        if (props.getProperty(PROP_KEY_PARTITION_START_TS) != null) {
+            partitionStartTs = Long.parseLong(props.getProperty(PROP_KEY_PARTITION_START_TS));
+            if (partitionStartTs <= 0) {
+                throw new DBException("Invalid partition configuration: " + PROP_KEY_PARTITION_START_TS + 
+                                    " must be specified and greater than 0 (millisecond timestamp)");
+            }
+        } else {
+            throw new DBException("Partition configuration is required. Please specify: " + PROP_KEY_PARTITION_START_TS + 
+                                " (must be greater than 0, millisecond timestamp)");
+        }
+        if (props.getProperty(PROP_KEY_PARTITION_DURATION_MS) != null) {
+            partitionDurationMs = Long.parseLong(props.getProperty(PROP_KEY_PARTITION_DURATION_MS));
+            if (partitionDurationMs <= 0) {
+                throw new DBException("Invalid partition configuration: " + PROP_KEY_PARTITION_DURATION_MS + 
+                                    " must be specified and greater than 0 (milliseconds)");
+            }
+        } else {
+            throw new DBException("Partition configuration is required. Please specify: " + PROP_KEY_PARTITION_DURATION_MS + 
+                                " (must be greater than 0, milliseconds)");
+        }
+        if (props.getProperty(PROP_KEY_PARTITION_COUNT) != null) {
+            partitionCount = Integer.parseInt(props.getProperty(PROP_KEY_PARTITION_COUNT));
+            if (partitionCount <= 0) {
+                throw new DBException("Invalid partition configuration: " + PROP_KEY_PARTITION_COUNT + 
+                                    " must be specified and greater than 0 (integer)");
+            }
+        } else {
+            throw new DBException("Partition configuration is required. Please specify: " + PROP_KEY_PARTITION_COUNT + 
+                                " (must be greater than 0, integer)");
+        }
+        if (props.getProperty(PROP_KEY_PMID_COUNT) != null) {
+            pmidCount = Integer.parseInt(props.getProperty(PROP_KEY_PMID_COUNT));
+            if (pmidCount <= 0) {
+                throw new DBException("Invalid partition configuration: " + PROP_KEY_PMID_COUNT + 
+                                    " must be specified and greater than 0 (integer)");
+            }
+        } else {
+            throw new DBException("Partition configuration is required. Please specify: " + PROP_KEY_PMID_COUNT + 
+                                " (must be greater than 0, integer)");
+        }
+        
+        if (debug) {
+            System.out.println("Partition config: startTs=" + partitionStartTs + 
+                             ", durationMs=" + partitionDurationMs + 
+                             ", count=" + partitionCount +
+                             ", pmidCount=" + pmidCount);
+        }
+        
         executorService = Executors.newFixedThreadPool(threadCount);
         client.setRuntimeBatchExecutor(executorService);
 
@@ -150,32 +211,58 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
     }
  
     /**
-     * 读取数据测试，目前无法测试批量读取
-    * @param table table
-    * @param key key
-    * @param fields fields
-    * @param result result
-    * @return ans
-    */
+     * 读取数据测试
+     * @param table table
+     * @param key key
+     * @param fields fields
+     * @param result result
+     * @return ans
+     */
     @Override
     public Status read(String table, String key, Set<String> fields,
                         HashMap<String, ByteIterator> result) {
         try {
-            client.addRowKeyElement(table,new String[]{"ycsb_key"});
-            String[] fs = new String[]{};
-            if (fields != null) {
-                fs = fields.toArray(new String[]{});
-            }
-            Iterator i$ = client.get(table, key, fs).entrySet().iterator();
-            while (i$.hasNext()) {
-                Map.Entry<String, Object> entry = (Map.Entry) i$.next();
-                result.put(entry.getKey(), new StringByteIterator(entry.getValue().toString()));
-                if (debug) {
-                    System.out.println("read result: {" + entry.getKey() + ": " + entry.getValue().toString() + "}");
+            // 基于key生成 pmid、ts
+            String pmid = generatePmid(key);
+            Timestamp ts = generateTs(key);
+            
+            // 注册主键元素
+            client.addRowKeyElement(table, new String[]{"pmid", "ts"});
+            
+            // 构建复合主键
+            Row rowKey = row(colVal("pmid", pmid), colVal("ts", ts));
+            
+            // 执行查询，select 所有列
+            Map<String, Object> rowData = client.get(table)
+                    .setRowKey(rowKey)
+                    .select("pmid", "ts", "value")
+                    .execute();
+            
+            if (rowData != null && !rowData.isEmpty()) {
+                // 根据 fields 参数过滤结果
+                if (fields != null && !fields.isEmpty()) {
+                    for (String field : fields) {
+                        if (rowData.containsKey(field)) {
+                            result.put(field, new StringByteIterator(rowData.get(field).toString()));
+                        }
+                    }
+                } else {
+                    // 如果 fields 为 null，返回所有字段
+                    for (Map.Entry<String, Object> entry : rowData.entrySet()) {
+                        result.put(entry.getKey(), new StringByteIterator(entry.getValue().toString()));
+                    }
                 }
+                
+                if (debug) {
+                    System.out.println("read result: pmid=" + pmid + ", ts=" + ts + ", data=" + result);
+                }
+                
+                return Status.OK;
+            } else if (debug) {
+                System.out.println("read result: key=" + key + ", pmid=" + pmid + ", ts=" + ts + ", data=null");
             }
-
-            return result.isEmpty() ? Status.NOT_FOUND : Status.OK;
+            
+            return Status.NOT_FOUND;
         } catch (Exception e) {
             e.printStackTrace();
             return Status.ERROR;
@@ -183,45 +270,100 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
     }
 
     /**
-     * 将零填充的字符串转换为long，加上指定值，再转换回零填充字符串
-     * @param paddedKey 零填充的字符串，如"00000028500000"
-     * @param increment 要加上的值
-     * @param paddingLength 填充长度
-     * @return 转换后的零填充字符串
+     * 生成一个随机的 double 值
+     * @return 随机生成的 double 值
      */
-    private String incrementPaddedKey(String paddedKey, long increment, int paddingLength) {
-        long keyNum = Long.parseLong(paddedKey);
-        long newKeyNum = keyNum + increment;
-        return String.format("%0" + paddingLength + "d", newKeyNum);
+    private Double generateRandomValue() {
+        return Math.random() * Double.MAX_VALUE;
     }
 
     /**
-     * 将零填充的字符串转换为long，加上指定值，再转换回零填充字符串（使用配置的填充长度）
-     * @param paddedKey 零填充的字符串，如"00000028500000"
-     * @param increment 要加上的值
-     * @return 转换后的零填充字符串
+     * 基于key生成pmid，确保pmid数量为pmidCount，循环使用
+     * @param key YCSB 生成的 key，是一个整型字符串（递增id）
+     * @return pmid 字符串，长度为 36
      */
-    private String incrementPaddedKey(String paddedKey, long increment) {
-        return incrementPaddedKey(paddedKey, increment, zeropadding);
+    private String generatePmid(String key) {
+        long keyValue;
+        try {
+            keyValue = Long.parseLong(key.trim());
+        } catch (NumberFormatException e) {
+            // 如果不是数字，使用hashCode
+            keyValue = Math.abs((long)key.hashCode());
+        }
+        
+        // pmid = key % pmidCount，确保pmid循环使用
+        long pmidValue = keyValue % pmidCount;
+        
+        // 格式化为字符串，确保长度为36（CHAR(36)）
+        String pmidStr = String.valueOf(pmidValue);
+        if (pmidStr.length() > 36) {
+            // 如果超过36，截断
+            return pmidStr.substring(0, 36);
+        }
+        return pmidStr;
+    }
+
+    /**
+     * 基于key生成ts (timestamp)，确保均匀分布在所有range分区上
+     * @param key YCSB 生成的 key，是一个整型字符串（递增id）
+     * @return Timestamp 对象
+     */
+    private Timestamp generateTs(String key) {
+        // 如果未配置分区参数，使用当前系统时间
+        if (partitionCount <= 0 || partitionDurationMs <= 0) {
+            return new Timestamp(System.currentTimeMillis());
+        }
+        
+        // 将key转换为数值
+        long keyValue;
+        try {
+            keyValue = Long.parseLong(key.trim());
+        } catch (NumberFormatException e) {
+            // 如果不是数字，使用hashCode
+            keyValue = Math.abs((long)key.hashCode());
+        }
+        
+        // 使用key本身作为hash值，确保不同key均匀分布
+        // 为了更好的分布，可以使用一个简单的hash函数
+        long hash = keyValue;
+        
+        // 计算分区索引：hash % partitionCount
+        int partitionIndex = (int) (hash % partitionCount);
+        
+        // 计算在该分区内的偏移：hash % partitionDurationMs
+        long offsetInPartition = hash % partitionDurationMs;
+        
+        // 计算最终的ts = 起始时间 + 分区索引 * 分区长度 + 分区内偏移
+        long finalTs = partitionStartTs + partitionIndex * partitionDurationMs + offsetInPartition;
+        
+        if (debug) {
+            System.out.println("generateTs: key=" + key + 
+                             ", hash=" + hash + 
+                             ", partitionIndex=" + partitionIndex + 
+                             ", offsetInPartition=" + offsetInPartition + 
+                             ", finalTs=" + finalTs);
+        }
+        
+        return new Timestamp(finalTs);
     }
  
     /**
      * @param table table
-    * @param startkey startkey
-    * @param recordcount recordcount
-    * @param fields fields
-    * @param result result
-    * @return ans
-    */
+     * @param startkey startkey
+     * @param recordcount recordcount
+     * @param fields fields
+     * @param result result
+     * @return ans
+     */
     @Override
     public Status scan(String table, String startkey, int recordcount, Set<String> fields,
                         Vector<HashMap<String, ByteIterator>> result) {
  
         try {
-            client.addRowKeyElement(table,new String[]{"ycsb_key"});
+            client.addRowKeyElement(table, new String[]{"pmid", "ts"});
             TableQuery query = client.query(table);
-            String endKey = incrementPaddedKey(startkey, recordcount);
-            query.addScanRange(new Object[] { startkey }, new Object[] { endKey });
+            String pmid = generatePmid(startkey);
+            query.addScanRange(new Object[] { pmid, ObObj.getMin()}, new Object[] { pmid, ObObj.getMax() });
             query.limit(recordcount);
             if (fields != null) {
                 query.select(fields.toArray(new String[]{}));
@@ -236,6 +378,15 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
                     rowResult.put(key, new StringByteIterator(value.toString()));
                 }
                 result.add(rowResult);
+                if (debug) {
+                    System.out.println("scan result: pmid=" + pmid +  ", data=" + rowResult);
+                }
+            }
+            if (result.isEmpty()) {
+                if (debug) {
+                    System.out.println("scan result: pmid=" + pmid +  ", data=null");
+                }
+                return Status.NOT_FOUND;
             }
             return Status.OK;
         } catch (Exception e) {
@@ -245,19 +396,42 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
     }
     /**
      * 更新操作
-    * @param table table
-    * @param key key
-    * @param values values
-    * @return ans
-    */
+     * @param table table
+     * @param key key
+     * @param values values
+     * @return ans
+     */
     @Override
     public Status update(String table, String key, HashMap<String, ByteIterator> values) {
-        Row rowKey  = row(colVal("ycsb_key", key));
+        // 基于key生成 pmid、ts
+        String pmid = generatePmid(key);
+        Timestamp ts = generateTs(key);
+        
+        // 构建复合主键 (pmid, ts)
+        Row rowKey = row(colVal("pmid", pmid), colVal("ts", ts));
+        
+        // 构建数据行，只更新value字段
         Row row = row();
-        for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
-            row.add(entry.getKey(), entry.getValue().toString());
+        // 如果values中有value字段，使用它；否则生成随机值
+        if (values != null && values.containsKey("value")) {
+            try {
+                Double value = Double.parseDouble(values.get("value").toString());
+                row.add("value", value);
+            } catch (Exception e) {
+                row.add("value", generateRandomValue());
+            }
+        } else {
+            row.add("value", generateRandomValue());
         }
+        
+        if (debug) {
+            System.out.println("update: pmid=" + pmid + ", ts=" + ts);
+        }
+        
         try {
+            // 注册主键元素
+            client.addRowKeyElement(table, new String[]{"pmid", "ts"});
+            
             switch (updateType) {
                 case "update":
                     client.update(table).setRowKey(rowKey).addMutateRow(row).execute();
@@ -280,12 +454,25 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
  
      @Override
      public Status insert(String table, String key, HashMap<String, ByteIterator> values) {
-        Row rowKey  = row(colVal("ycsb_key", key));
-        Row row = row();
-        for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
-            row.add(entry.getKey(), entry.getValue().toString());
+        // 基于key生成 pmid、ts、value
+        String pmid = generatePmid(key);
+        Timestamp ts = generateTs(key);
+        Double value = generateRandomValue();
+
+        // 构建复合主键 (pmid, ts)
+        Row rowKey = row(colVal("pmid", pmid), colVal("ts", ts));
+        
+        // 构建数据行，只包含 value 字段
+        Row row = row(colVal("value", value));
+
+        if (debug) {
+            System.out.println("insert: pmid=" + pmid + ", ts=" + ts + ", value=" + value);
         }
+
         try {
+            // 注册主键元素
+            client.addRowKeyElement(table, new String[]{"pmid", "ts"});
+            
             switch (insertType) {
                 case "insert":
                     client.insert(table).setRowKey(rowKey).addMutateRow(row).execute();
@@ -301,6 +488,7 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
             }
         } catch (Exception e) {
             e.printStackTrace();
+            return Status.ERROR;
         }
 
         return OK;
@@ -321,15 +509,41 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
     public Status batchPut(String table, Map<String, Map<String, ByteIterator>> valuesMap) {
         List<Mutation> mutationList = new ArrayList<>();
         BatchOperation batchOperation = client.batchOperation(table);
-        valuesMap.forEach((k, v) -> {
+        
+        // 注册主键元素
+        try {
+            client.addRowKeyElement(table, new String[]{"pmid", "ts"});
+        } catch (Exception e) {
+            // 如果已经注册过，忽略错误
             if (debug) {
-                System.out.println("batchPut: {rowKey: " + k + "}");
+                System.out.println("Row key element already registered or error: " + e.getMessage());
             }
-            Row rowKey = row(colVal("ycsb_key", k));
-            Row row = row();
-            for (Map.Entry<String, ByteIterator> entry : v.entrySet()) {
-                row.add(entry.getKey(), entry.getValue().toString());
+        }
+
+        valuesMap.forEach((k, v) -> {
+            // 将 Map<String, ByteIterator> 转换为 HashMap<String, ByteIterator>
+            HashMap<String, ByteIterator> values = new HashMap<>();
+            if (v != null) {
+                for (Map.Entry<String, ByteIterator> entry : v.entrySet()) {
+                    values.put(entry.getKey(), entry.getValue());
+                }
             }
+
+            // 基于key生成 pmid、ts、value
+            String pmid = generatePmid(k);
+            Timestamp ts = generateTs(k);
+            Double value = generateRandomValue();
+
+            if (debug) {
+                System.out.println("batchPut: pmid=" + pmid + ", ts=" + ts + ", value=" + value);
+            }
+
+            // 构建复合主键 (pmid, ts)
+            Row rowKey = row(colVal("pmid", pmid), colVal("ts", ts));
+            
+            // 构建数据行，只包含 value 字段
+            Row row = row(colVal("value", value));
+
             switch (batchPutType) {
                 case "insert":
                     mutationList.add(MutationFactory.insert().setRowKey(rowKey).addMutateRow(row));
@@ -360,35 +574,69 @@ import com.alipay.oceanbase.rpc.protocol.payload.impl.ObObj;
     @Override
     public Status batchRead(String table, Set<String> fields, Map<String, Map<String, ByteIterator>> valuesMap) {
         try {
-            client.addRowKeyElement(table,new String[]{"ycsb_key"});
-            List<Mutation> mutationList = new ArrayList<>();
+            // 注册主键元素
+            client.addRowKeyElement(table, new String[]{"pmid", "ts"});
+            
+            // 创建 Get 操作列表
+            List<TableQuery> getOps = new ArrayList<>();
+            List<String> keys = new ArrayList<>(valuesMap.keySet());
+            
+            // 为每个 key 创建 Get 操作
+            for (String key : keys) {
+                // 基于key生成 pmid、ts
+                String pmid = generatePmid(key);
+                Timestamp ts = generateTs(key);
+                
+                // 构建复合主键
+                Row rowKey = row(colVal("pmid", pmid), colVal("ts", ts));
+                
+                // 创建 Get 操作，select 所有列
+                TableQuery getOp = query().setRowKey(rowKey).select("pmid", "ts", "value");
+                getOps.add(getOp);
+            }
+            
+            // 批量执行
             BatchOperation batchOperation = client.batchOperation(table);
-            valuesMap.keySet().forEach(key -> {
-                Row rowKey = row(colVal("ycsb_key", key));
-                try {
-                    batchOperation.addOperation(MutationFactory.query().setRowKey(rowKey));
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            });
+            batchOperation.addOperation(getOps.toArray(new TableQuery[0]));
             BatchOperationResult batchResult = batchOperation.execute();
-            List<Object> results = batchResult.getResults();
-            if (results == null || results.isEmpty()) {
-              return NOT_FOUND;
+            
+            if (batchResult == null || batchResult.size() == 0) {
+                return Status.NOT_FOUND;
             }
-            for (int i = 0; i < results.size(); i++) {
-              Row row = batchResult.get(i).getOperationRow();
-              Map<String, Object> getMap = row.getMap();
-              HashMap<String, ByteIterator> rowResult = new HashMap<String, ByteIterator>();    
-              for (Map.Entry<String, Object> entry : getMap.entrySet()) {
-                String key = entry.getKey();
-                Object value = entry.getValue();    
-                rowResult.put(key, new StringByteIterator(value.toString()));
-              }
-              if (debug) {
-                System.out.println("batchRead result: " + rowResult);
-              }
+            
+            // 处理结果
+            for (int i = 0; i < batchResult.size(); i++) {
+                Row row = batchResult.get(i).getOperationRow();
+                if (row != null) {
+                    Map<String, Object> rowData = row.getMap();
+                    if (rowData != null && !rowData.isEmpty()) {
+                        String key = keys.get(i);
+                        HashMap<String, ByteIterator> rowResult = new HashMap<>();
+                        
+                        // 根据 fields 参数过滤结果
+                        if (fields != null && !fields.isEmpty()) {
+                            for (String field : fields) {
+                                if (rowData.containsKey(field)) {
+                                    rowResult.put(field, new StringByteIterator(rowData.get(field).toString()));
+                                }
+                            }
+                        } else {
+                            // 如果 fields 为 null，返回所有字段
+                            for (Map.Entry<String, Object> entry : rowData.entrySet()) {
+                                rowResult.put(entry.getKey(), new StringByteIterator(entry.getValue().toString()));
+                            }
+                        }
+                        
+                        // 将结果放入 valuesMap
+                        valuesMap.put(key, rowResult);
+                        
+                        if (debug) {
+                            System.out.println("batchRead result[" + i + "]: key=" + key + ", data=" + rowResult);
+                        }
+                    }
+                }
             }
+            
             return Status.OK;
         } catch (Exception e) {
             e.printStackTrace();

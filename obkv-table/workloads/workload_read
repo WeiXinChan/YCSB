@@ -24,26 +24,30 @@
 
 workload=com.yahoo.ycsb.workloads.CoreWorkload
 
-recordcount=30000000
-operationcount=30000000
-
-# The number of fields in a record
-fieldcount=10
-# The size of each field (in bytes)
-fieldlength=100
+# ATTENTION !!! 
+# for batchput, if you want to insert record without duplication, 
+# the recordcount mut be larger than or eqaul to batchput.size.per.op * operationcount
+# otherwise, it may generate duplicate records and put operation will overwrite them
+recordcount=
+operationcount=
 
 insertproportion=0
-readproportion=1.0
+readproportion=1
 updateproportion=0
 readmodifywriteproportion=0
 scanproportion=0
+# for batch operation
+batchputproportion=0
+batchput.size.per.op=10
+batchreadproportion=0
+batchread.size.per.op=10
 
 requestdistribution=uniform
 
 # threadcounts
 threadcount=10
 
-#### 连接方式 ####
+#### 连接方式(二选一) ####
 obkv.isOdpMode=false
 
 ##### ODP模式必填 #####
@@ -57,6 +61,12 @@ obkv.sysPassword=
 ##### 账户密码 #####
 obkv.fullUserName=
 obkv.password=
-
 obkv.database=test
+
+# ========== 分区配置（必须配置） ==========
+obkv.rangePartitionStartTs=
+obkv.rangePartitionDurationMs=
+obkv.rangePartitionCount=
+obkv.pmidCount=
+
 obkv.debug=false
