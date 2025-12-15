@@ -51,7 +51,7 @@ SUBPARTITION BY KEY(pmid) SUBPARTITIONS <key_subpartition_count>
 ### 1. 环境要求
 
 - **Java**: JDK 1.7 或更高版本
-- **Maven**: 3.x 版本
+- **Maven**: >= 3.2.5 版本
 - **操作系统**: Linux/macOS/Windows
 
 ### 2. 编译打包
@@ -177,9 +177,9 @@ SUBPARTITION BY KEY(pmid) SUBPARTITIONS 48
 
 | 参数名 | 说明 | 可选值 | 默认值 |
 |--------|------|--------|--------|
-| `obkv.insertType` | insert操作使用的obkv接口 | `insert`, `insertup`, `put` | `insertup` |
-| `obkv.updateType` | update操作使用的obkv接口 | `update`, `insertup`, `put` | `update` |
-| `obkv.batchPutType` | batch_put操作使用的obkv接口 | `insert`, `insertup`, `put` | `insertup` |
+| `obkv.insertType` | insert操作使用的obkv接口 | `insert`, `insertup`, `put` | `put` |
+| `obkv.updateType` | update操作使用的obkv接口 | `update`, `insertup`, `put` | `put` |
+| `obkv.batchPutType` | batch_put操作使用的obkv接口 | `insert`, `insertup`, `put` | `put` |
 
 **接口说明：**
 - `insert`: 插入操作，如果主键已存在会报错
