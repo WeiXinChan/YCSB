@@ -125,7 +125,7 @@ SUBPARTITION BY KEY(pmid) SUBPARTITIONS 48
 
 ### 4. 配置workload
 
-在使用前，需要配置workload文件中的OceanBase连接参数和分区配置参数。
+在使用前需要填写对应测试操作workloads/workload_xxx文件中的OceanBase连接参数、分区配置参数和通用压测参数。
 
 #### 4.1 OceanBase连接参数
 
@@ -169,6 +169,7 @@ SUBPARTITION BY KEY(pmid) SUBPARTITIONS 48
 | `recordcount` | 记录总数 | - |
 | `requestdistribution` | 请求分布模式 | uniform |
 | `threadcount` | 并发线程数 | 1 |
+
 **说明**
 `operationcount`是生成操作的总数，用于生成每个操作；`recodcount`是导入数据的总数，用于生成每个操作key的范围；一般情况下令`operationcount`=`recodcount`即可；
 
@@ -243,7 +244,7 @@ obkv.batchPutType=insertup
 ```
 
 
-#### 5.1. Insert 测试
+#### 5.1. Put 测试
 
 ```bash
 # 运行insert测试
@@ -254,7 +255,7 @@ obkv.batchPutType=insertup
 ```
 
 **说明：**
-- 默认使用 `insertup` 接口
+- 默认使用 `put` 接口
 - 每个操作会基于key生成 `(pmid, ts, value)` 三元组
 - 数据会均匀分布到所有range分区
 
@@ -266,7 +267,7 @@ obkv.batchPutType=insertup
 ```
 
 **说明：**
-- 默认使用 `insertup` 接口
+- 默认使用 `put` 接口
 - 批量插入多个 `(pmid, ts, value)` 记录
 - 可以通过 `batchput.size.per.op` 配置每批的数量
 

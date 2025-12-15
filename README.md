@@ -38,7 +38,7 @@ YCSB/
 ## 模块概要
 每个测试模块的具体使用说明可以详见模块内的README.md文件:
 - [obhbase](obhbase/README.md)
-- [obkv-table](obkv-table/README)
+- [obkv-table](obkv-table/README.md)
 
 ### core/
 YCSB框架的核心模块，引用自[YCSB项目](https://github.com/brianfrankcooper/YCSB)
